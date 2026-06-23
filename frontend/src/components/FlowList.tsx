@@ -116,6 +116,7 @@ export default function FlowList() {
                   <span className={`flex w-20 items-center font-semibold ${methodColor(f.method)}`}>
                     {paused && <span className="mr-1" title="paused">⏸</span>}
                     {f.replay && <span className="mr-1 text-cyan-600" title="resent">⟳</span>}
+                    {f.reqMocked && <span className="mr-1 text-purple-600" title="request body mocked">✎</span>}
                     <span className="truncate">{f.method}</span>
                   </span>
                   <span

@@ -74,6 +74,12 @@ class Engine:
             intercept_mod.mock_response(flow, rule.get("mock") or {})
             flow.metadata["nox_mocked"] = True
             await self._emit(flow, "response", mocked=True)
+        elif action == "mock_request":
+            # Swap in a fixed request body and let the request continue to the
+            # server (no pause). The response hook later emits the response.
+            intercept_mod.set_request_body(flow, rule.get("mockReqBody") or "")
+            flow.metadata["nox_req_mocked"] = True
+            await self._emit(flow, "request", reqMocked=True)
         else:  # "pause" — intercept for manual edit
             self.state.pending.add(flow)
             flow.intercept()

@@ -48,6 +48,15 @@ def apply_response_edits(flow, edits: dict[str, Any]) -> None:
         resp.text = edits["body"]
 
 
+def set_request_body(flow, body: str) -> None:
+    """Replace the outgoing request body (the "mock request body" rule action).
+
+    Assigning ``flow.request.text`` also recomputes Content-Length, so the
+    forwarded request stays well-formed (SPEC §10).
+    """
+    flow.request.text = body or ""
+
+
 def mock_response(flow, spec: dict[str, Any]) -> None:
     """Short-circuit a flow with a fixed response (the "mock" rule action).
 

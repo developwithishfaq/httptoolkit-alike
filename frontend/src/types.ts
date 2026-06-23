@@ -27,6 +27,7 @@ export interface Flow {
   durationMs?: number;
   dropped?: boolean;
   mocked?: boolean;
+  reqMocked?: boolean; // request body was replaced by a "mock request body" rule
   error?: string;
   replay?: boolean;
   replayToken?: string;
@@ -57,8 +58,9 @@ export interface RuleMatch {
 
 // What a matching rule does. "pause" = intercept for manual edit; "drop" =
 // kill the request (never reaches the server); "mock" = short-circuit with a
-// fixed response without contacting the server.
-export type RuleAction = "pause" | "drop" | "mock";
+// fixed response without contacting the server; "mock_request" = replace the
+// outgoing request body with a fixed one, then forward it to the server.
+export type RuleAction = "pause" | "drop" | "mock" | "mock_request";
 
 export interface MockResponse {
   status?: number;
@@ -74,6 +76,7 @@ export interface Rule {
   action: RuleAction;
   match: RuleMatch;
   mock?: MockResponse;
+  mockReqBody?: string; // body substituted when action is "mock_request"
 }
 
 export interface RulesMsg {

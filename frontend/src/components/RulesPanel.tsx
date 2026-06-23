@@ -9,6 +9,7 @@ const ACTIONS: { value: RuleAction; label: string; hint: string }[] = [
   { value: "pause", label: "Pause for edit", hint: "intercept and let you edit before it continues" },
   { value: "drop", label: "Drop", hint: "kill the request — it never reaches the server" },
   { value: "mock", label: "Mock response", hint: "return a fixed response without contacting the server" },
+  { value: "mock_request", label: "Mock request body", hint: "replace the request body before it reaches the server" },
 ];
 
 const newRule = (): Rule => ({
@@ -162,7 +163,9 @@ export default function RulesPanel() {
                 <select
                   value={r.direction}
                   onChange={(e) => update(r.id, { direction: e.target.value as Rule["direction"] })}
-                  className="rounded border border-paper-200 bg-white px-2 py-1 text-slate-700 outline-none focus:border-accent"
+                  disabled={r.action === "mock_request"}
+                  title={r.action === "mock_request" ? "request body mocking always applies to the request" : undefined}
+                  className="rounded border border-paper-200 bg-white px-2 py-1 text-slate-700 outline-none focus:border-accent disabled:opacity-60"
                 >
                   <option value="request">request</option>
                   <option value="response">response</option>
@@ -171,7 +174,11 @@ export default function RulesPanel() {
                 <label className="text-slate-400">action</label>
                 <select
                   value={r.action}
-                  onChange={(e) => update(r.id, { action: e.target.value as RuleAction })}
+                  onChange={(e) => {
+                    const action = e.target.value as RuleAction;
+                    // Request-body mocking only makes sense on the request side.
+                    update(r.id, action === "mock_request" ? { action, direction: "request" } : { action });
+                  }}
                   title={ACTIONS.find((a) => a.value === r.action)?.hint}
                   className="rounded border border-paper-200 bg-white px-2 py-1 text-slate-700 outline-none focus:border-accent"
                 >
@@ -209,6 +216,13 @@ export default function RulesPanel() {
               </div>
 
               {r.action === "mock" && <MockEditor mock={r.mock} onChange={(p) => updateMock(r.id, p)} />}
+
+              {r.action === "mock_request" && (
+                <MockRequestEditor
+                  body={r.mockReqBody}
+                  onChange={(body) => update(r.id, { mockReqBody: body })}
+                />
+              )}
 
               <div className="mt-3 flex items-center gap-2">
                 <button
@@ -324,6 +338,34 @@ function MockEditor({
           placeholder={`{ "ok": true }`}
           className={`w-full p-2 font-mono text-xs ${inputCls}`}
         />
+      </div>
+    </div>
+  );
+}
+
+// Editor for the "Mock request body" action: the fixed body that replaces the
+// outgoing request body before it's forwarded to the server.
+function MockRequestEditor({
+  body,
+  onChange,
+}: {
+  body?: string;
+  onChange: (body: string) => void;
+}) {
+  return (
+    <div className="mt-3 space-y-2 rounded border border-paper-200 bg-paper-50 p-2">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+        Mock request body
+      </div>
+      <textarea
+        value={body || ""}
+        onChange={(e) => onChange(e.target.value)}
+        rows={4}
+        placeholder={`{ "username": "test" }`}
+        className={`w-full p-2 font-mono text-xs ${inputCls}`}
+      />
+      <div className="text-[11px] text-slate-400">
+        Replaces the request body on matching requests; Content-Length is updated automatically.
       </div>
     </div>
   );
