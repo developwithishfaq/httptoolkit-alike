@@ -1,0 +1,137 @@
+// Wire types mirroring the backend protocol (SPEC §9).
+
+export type FlowPhase = "request" | "paused" | "response";
+
+export interface Flow {
+  type: "flow";
+  phase: FlowPhase;
+  id: string;
+  tStart: number;
+  method: string;
+  scheme: string;
+  host: string;
+  path: string;
+  url: string;
+  reqHeaders: Record<string, string>;
+  reqBody?: string;
+  reqBinary: boolean;
+  reqSize?: number;
+  reqTruncated?: boolean;
+  status?: number;
+  reason?: string;
+  respHeaders?: Record<string, string>;
+  respBody?: string;
+  respBinary?: boolean;
+  respSize?: number;
+  respTruncated?: boolean;
+  durationMs?: number;
+  dropped?: boolean;
+  mocked?: boolean;
+  error?: string;
+  replay?: boolean;
+  replayToken?: string;
+}
+
+export interface ConnState {
+  connected: boolean;
+  proxyRunning: boolean;
+  certInstalled: boolean;
+  deviceSerial: string | null;
+  androidSdk: number | null;
+  hostProxy: string | null;
+}
+
+export interface StatusMsg {
+  type: "status";
+  step: string;
+  ok: boolean;
+  message: string;
+  state: ConnState;
+}
+
+export interface RuleMatch {
+  method?: string;
+  hostContains?: string;
+  urlRegex?: string;
+}
+
+// What a matching rule does. "pause" = intercept for manual edit; "drop" =
+// kill the request (never reaches the server); "mock" = short-circuit with a
+// fixed response without contacting the server.
+export type RuleAction = "pause" | "drop" | "mock";
+
+export interface MockResponse {
+  status?: number;
+  headers?: Record<string, string>;
+  body?: string;
+}
+
+export interface Rule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  direction: "request" | "response";
+  action: RuleAction;
+  match: RuleMatch;
+  mock?: MockResponse;
+}
+
+export interface RulesMsg {
+  type: "rules";
+  rules: Rule[];
+}
+
+export interface PrereqCheck {
+  ok: boolean;
+  detail: string;
+}
+
+export interface Prereqs {
+  adb: PrereqCheck;
+  mitmCA: PrereqCheck;
+  hostIp: string;
+  proxyPort: number;
+  firewallHint: string;
+}
+
+export interface PrereqsMsg {
+  type: "prereqs";
+  prereqs: Prereqs;
+}
+
+export interface ErrorMsg {
+  type: "error";
+  message: string;
+}
+
+export interface ClearedMsg {
+  type: "cleared";
+}
+
+export type ServerMsg =
+  | Flow
+  | StatusMsg
+  | RulesMsg
+  | PrereqsMsg
+  | ErrorMsg
+  | ClearedMsg;
+
+export type ClientAction =
+  | { action: "connect" }
+  | { action: "disconnect" }
+  | { action: "reboot_device" }
+  | { action: "clear" }
+  | { action: "set_rules"; rules: Rule[] }
+  | { action: "forward"; id: string; edits: Record<string, unknown> }
+  | { action: "drop"; id: string }
+  | {
+      action: "resend";
+      request: {
+        method: string;
+        url: string;
+        headers: Record<string, string>;
+        body: string;
+        token: string;
+      };
+    }
+  | { action: "check_prereqs" };
