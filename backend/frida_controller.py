@@ -172,13 +172,24 @@ class FridaController:
             return
         await self._emit("frida_abi", True, f"CPU {abi} → {binary.name}")
 
-        # 3) Push + chmod.
-        res = await self.adb.push(str(binary), config.FRIDA_REMOTE_PATH)
-        if not res.ok:
-            await self._emit("frida_push", False, f"push failed: {res.text}")
-            return
+        # 3) Push the binary — unless an identical one is already on the device.
+        #    frida-server is ~15-100 MB; re-pushing every start is slow and
+        #    pointless when the same build is already in /data/local/tmp. We
+        #    compare byte sizes: a size match means same version (the binary is
+        #    version-locked to the host frida package), so reuse it. A different
+        #    size (e.g. after upgrading frida) re-pushes.
+        local_size = binary.stat().st_size
+        remote_size = await self.adb.remote_file_size(config.FRIDA_REMOTE_PATH)
+        if remote_size == local_size:
+            await self._emit("frida_push", True, "frida-server already on device — reusing")
+        else:
+            res = await self.adb.push(str(binary), config.FRIDA_REMOTE_PATH)
+            if not res.ok:
+                await self._emit("frida_push", False, f"push failed: {res.text}")
+                return
+            await self._emit("frida_push", True, "frida-server pushed")
+        # Ensure it's executable either way (cheap, idempotent).
         await self.adb.chmod(config.FRIDA_REMOTE_PATH, "755")
-        await self._emit("frida_push", True, "frida-server pushed")
 
         # 4) Launch as a long-lived process and wait for it to come up.
         await self.adb.kill_process("nox-frida-server")  # clear any stale instance

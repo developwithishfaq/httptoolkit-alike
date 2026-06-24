@@ -32,8 +32,10 @@ ws "frida_start"
         3. adb.cpu_abi()                   → config.frida_server_binary(abi)
            binary exists?                  no → emit frida_abi(False, "run fetch-…")
                                            → emit frida_abi(True)
-        4. adb.push(binary → FRIDA_REMOTE_PATH); adb.chmod 755
-                                           → emit frida_push
+        4. adb.remote_file_size(FRIDA_REMOTE_PATH) == local size?
+             yes → skip push ("already on device — reusing")
+             no  → adb.push(binary → FRIDA_REMOTE_PATH)
+           adb.chmod 755 (either way)      → emit frida_push
         5. adb.kill_process("nox-frida-server")   (clear stale)
            adb.spawn_shell(FRIDA_REMOTE_PATH)      → self._server_proc (kept alive)
            _wait_for_server (poll adb.pidof)

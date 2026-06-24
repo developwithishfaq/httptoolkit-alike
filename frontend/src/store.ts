@@ -237,6 +237,9 @@ export const useStore = create<AppStore>((set) => ({
         const startPhaseDone = m.step === "frida_connect" && m.ok;
         const injectDone = m.step === "frida_inject";
         if (startPhaseDone || injectDone || !m.ok) next.fridaBusy = false;
+        // Once the app is hooked, jump to the traffic view so the user sees
+        // its flows immediately (mirrors the device-wide capture behaviour).
+        if (m.step === "frida_inject" && m.ok) next.mainView = "view";
       } else if (!m.ok) {
         next.fridaBusy = false;
       }

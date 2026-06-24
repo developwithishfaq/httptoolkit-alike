@@ -20,7 +20,15 @@ exchange for using the upstream, battle-tested socket-redirection logic.)
 
 To re-vendor / update: replace the body of `native-connect-hook.js` with the
 latest upstream file (keep the SPDX header and the short adaptation note at the
-top intact). Do **not** hand-edit the socket/SOCKS5 logic.
+top intact), then **re-apply the marked `LOCAL PATCH` block(s)**.
+
+### Local patches (deviations from upstream verbatim)
+
+- **`performSocksHandshake` — IPv4-mapped IPv6 unwrap.** Android apps often use
+  AF_INET6 sockets with `::ffff:a.b.c.d` addresses for IPv4 destinations. Sent to
+  mitmproxy's SOCKS5 server as ATYP=IPv6 these get reply 4 ("host unreachable"),
+  breaking all connectivity. The patch unwraps them to ATYP=IPv4. HTTP Toolkit's
+  own proxy unwraps these server-side, which is why upstream doesn't need it.
 
 ## Other scripts in this directory
 

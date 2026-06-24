@@ -347,6 +347,23 @@ class AdbOrchestrator:
         res = await self._shell(serial, f"ls -l {path}")
         return res.ok and "No such file" not in res.text
 
+    async def remote_file_size(self, path: str, serial: Optional[str] = None) -> Optional[int]:
+        """Byte size of a device-side file, or None if it doesn't exist / unreadable.
+        Used to skip re-pushing a frida-server that's already on the device. Tries
+        toybox `stat -c %s` first (exact), then falls back to parsing `ls -l`."""
+        serial = serial or self.serial or ""
+        res = await self._shell(serial, f"stat -c %s {path}")
+        text = res.text.strip()
+        if res.ok and text.isdigit():
+            return int(text)
+        # Fallback: toybox `ls -l` — size is the 5th whitespace field.
+        res = await self._shell(serial, f"ls -l {path}")
+        if res.ok and "No such file" not in res.text:
+            parts = res.text.split()
+            if len(parts) >= 5 and parts[4].isdigit():
+                return int(parts[4])
+        return None
+
     # --- proxy control -----------------------------------------------------
 
     async def set_proxy(self, host_port: str, serial: Optional[str] = None) -> AdbResult:
