@@ -7,8 +7,15 @@ injects a script into **one** target app that trusts our CA, routes the app's
 sockets through the proxy, and disables certificate pinning. Captured traffic
 still flows through the same mitmproxy on `:51080` into the normal flow list.
 
-**Requires root** — `frida-server` runs as root. On a non-rooted device the
-feature is offered but gated off (the card explains why).
+**Standalone** — like HTTP Toolkit's Frida interceptor, the entry point does the
+Connect work itself: if the device isn't connected, `start_server` runs the full
+[Connect flow](flows/connect.md) (adb → device → root → CA → proxy) first, then
+the Frida steps. No separate "Connect" click required.
+
+**Requires root** — `frida-server` runs as root. Connect tolerates a non-rooted
+device via user-cert mode, but Frida cannot: after the connect phase the flow
+hard-fails if `conn.rooted` isn't true. The card itself is only disabled when the
+**host** can't run Frida at all (no frida package or no bundled binary).
 
 ## file → symbol
 
@@ -63,8 +70,10 @@ device match.
   wrapped in `asyncio.to_thread` so the event loop keeps serving flows.
 - **off-loop callbacks.** Script `on('message')` runs on a frida thread;
   `_emit_threadsafe` marshals UI emits back via `run_coroutine_threadsafe`.
-- **Shared adb.** `FridaController` reuses `ConnectController.adb`, so Connect
-  must have located adb + a serial first (hence the "Run Connect first" gate).
+- **Shared adb.** `FridaController` reuses `ConnectController.adb`. The standalone
+  flow drives `self.connect.connect()` to locate adb + acquire a serial, so no
+  prior Connect click is needed; if a Connect is already running its lock makes
+  the nested call a no-op and Frida reports it couldn't connect (retry).
 - **Spawn-gated injection.** Apps are `spawn`'d paused, hooked, then `resume`'d,
   so pinning hooks are in place before the app makes its first request.
 - **Coverage.** `android-unpinning.js` covers the common cases (TrustManagerImpl,
