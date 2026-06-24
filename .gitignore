@@ -11,6 +11,9 @@ frontend/dist/
 *.local
 *.tsbuildinfo
 
+# Frida — large, version-locked, provisioned by scripts/fetch-frida-server.py
+desktop/resources/frida-server/
+
 # Editor / OS
 .vscode/
 .idea/

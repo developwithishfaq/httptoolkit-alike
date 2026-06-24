@@ -65,17 +65,37 @@ class ConnectController:
     # --- public actions ----------------------------------------------------
 
     async def connect(self) -> None:
+        """Feature 1 — establish the ADB device *link* only (online + root
+        detection). The prerequisite that gates Intercept-traffic and Frida."""
         if self._lock.locked():
             await self._emit("connect", False, "A connect is already in progress.")
             return
         async with self._lock:
             await self._run_connect()
 
+    async def intercept_traffic(self) -> None:
+        """Feature 2 — device-wide capture: install the CA + point the device
+        http_proxy at mitmproxy. Requires the device link (connect) first."""
+        if self._lock.locked():
+            await self._emit("capture", False, "An operation is already in progress.")
+            return
+        async with self._lock:
+            await self._run_intercept_traffic()
+
+    async def stop_intercept(self) -> None:
+        """Clear the device proxy (stop device-wide capture) but keep the link."""
+        async with self._lock:
+            if self.adb.adb_path and self.adb.serial:
+                await self.adb.clear_proxy()
+            self.state.conn.capturing = False
+            await self._emit("capture_stopped", True, "Traffic capture stopped; device proxy cleared.")
+
     async def disconnect(self) -> None:
         async with self._lock:
             if self.adb.adb_path and self.adb.serial:
                 await self.adb.clear_proxy()
             self.state.conn.connected = False
+            self.state.conn.capturing = False
             await self._emit("disconnected", True, "Disconnected — device proxy cleared.")
 
     async def reboot_device(self) -> None:
@@ -97,19 +117,75 @@ class ConnectController:
     # --- orchestration -----------------------------------------------------
 
     async def _run_connect(self) -> None:
+        """Feature 1: device link only — adb → device online → root detect →
+        Android version. Leaves cert/proxy to Intercept-traffic (feature 2)."""
         conn = self.state.conn
 
-        # 1) Locate adb -----------------------------------------------------
-        adb_path = self.adb.locate()
+        # 1) Locate adb — pick the one that actually sees a device ----------
+        adb_path = await self.adb.autoselect()
         if not adb_path:
             await self._emit(
                 "adb_found", False,
-                "adb not found. Install Nox (nox_adb.exe) or add adb to PATH.",
+                "adb not found. Add Android platform-tools (adb) to PATH, or install Nox.",
             )
             return
         await self._emit("adb_found", True, f"adb: {adb_path}")
 
-        # 2) Proxy running (started at boot) — confirm the CA exists --------
+        # 2) Connect device — any online ADB device (USB or emulator) ------
+        res = await self.adb.connect()
+        if not res.ok:
+            await self._emit("device_connected", False, res.text or "no device online")
+            return
+        conn.deviceSerial = self.adb.serial
+        await self._emit("device_connected", True, f"device connected: {self.adb.serial}")
+
+        # 3) Root (best-effort, never a dead end) ---------------------------
+        # `adb root` only works on rooted/userdebug builds or emulators. On a
+        # retail phone it fails — that's fine: the device is still linked, and
+        # Intercept-traffic falls back to user-cert mode. (Frida needs root.)
+        res = await self.adb.root()
+        text = (res.stdout + res.stderr).lower()
+        rooted = res.ok and "cannot run as root" not in text and "production build" not in text
+        if rooted:
+            # adbd restarts as root and the network device can briefly drop.
+            if not await self._ensure_online():
+                await self._emit("rooted", False, "Device went offline after `adb root`.")
+                return
+            conn.rooted = True
+            await self._emit("rooted", True, "adbd running as root")
+        else:
+            conn.rooted = False
+            await self._emit(
+                "rooted", True,
+                "device not rooted — system-store HTTPS unavailable (Intercept traffic "
+                "uses a user cert; Frida needs root).",
+            )
+
+        # 4) Android version (recorded for the cert strategy later) ---------
+        sdk = await self.adb.sdk_level()
+        conn.androidSdk = sdk
+        label = f"Android API {sdk}" if sdk is not None else "Android version unknown"
+        await self._emit("android_checked", True, label)
+
+        # 5) Linked --------------------------------------------------------
+        conn.connected = True
+        await self._emit(
+            "connected", True,
+            "Device linked. Start Intercept traffic for device-wide capture, or use Frida "
+            "for a single app.",
+        )
+
+    async def _run_intercept_traffic(self) -> None:
+        """Feature 2: device-wide capture — confirm CA, install it per the
+        device's cert strategy, and point the device proxy at mitmproxy."""
+        conn = self.state.conn
+
+        # 0) Require the device link (feature 1) first.
+        if not (self.adb.adb_path and self.adb.serial and conn.connected):
+            await self._emit("capture", False, "Connect a device first (Connect device / ADB).")
+            return
+
+        # 1) Proxy running (started at boot) — confirm the CA exists --------
         conn.proxyRunning = True
         if not self.certs.ca_exists():
             await self._emit(
@@ -119,77 +195,59 @@ class ConnectController:
             return
         await self._emit("proxy_running", True, f"proxy on 0.0.0.0:{PROXY_PORT}")
 
-        # 3) Connect device — any online ADB device (USB or emulator) ------
-        res = await self.adb.connect()
-        if not res.ok:
-            await self._emit("device_connected", False, res.text or "no device online")
-            return
-        conn.deviceSerial = self.adb.serial
-        await self._emit("device_connected", True, f"device connected: {self.adb.serial}")
+        # 2) Decide the cert strategy. System-store install needs root AND API
+        #    ≤ 33 (14+ moved certs to /apex). Anything else uses the user cert.
+        sdk = conn.androidSdk
+        rooted = bool(conn.rooted)
+        can_system = rooted and sdk is not None and sdk <= 33
 
-        # 4) Root -----------------------------------------------------------
-        res = await self.adb.root()
-        text = (res.stdout + res.stderr).lower()
-        if "cannot run as root" in text or "production build" in text:
-            await self._emit(
-                "rooted", False,
-                "Root unavailable — `adb root` only works on rooted/userdebug "
-                "devices or emulators. (On Nox: enable Root mode in Settings → "
-                "General → Root, restart Nox, then Connect again.)",
-            )
-            return
-        # adbd restarts as root and the network device can briefly drop — wait.
-        if not await self._ensure_online():
-            await self._emit("rooted", False, "Device went offline after `adb root`.")
-            return
-        await self._emit("rooted", True, "adbd running as root")
-
-        # 5) Android version check (SPEC §7.3) ------------------------------
-        sdk = await self.adb.sdk_level()
-        conn.androidSdk = sdk
-        if sdk is None:
-            await self._emit("android_checked", False, "Could not read Android SDK level.")
-            return
-        if sdk >= 34:
-            await self._emit(
-                "android_checked", False,
-                f"Android API {sdk} (14+): cert store moved to /apex and needs "
-                f"per-namespace mounts — not yet supported. Use Android ≤ 13.",
-            )
-            return
-        method = "system push" if sdk <= 28 else "tmpfs overlay"
-        await self._emit("android_checked", True, f"Android API {sdk} — supported ({method})")
-
-        # 6) Install the CA into the system store ---------------------------
         try:
             info = self.certs.compute()
         except FileNotFoundError as e:
             await self._emit("cert_installed", False, str(e))
             return
-        self.certs.build_android_cert(info, APP_DATA_DIR / "certs")
 
-        if sdk <= 28:
-            ok, message = await self._install_cert_push(info)
+        if can_system:
+            self.certs.build_android_cert(info, APP_DATA_DIR / "certs")
+            if sdk <= 28:
+                ok, message = await self._install_cert_push(info)
+            else:
+                ok, message = await self._install_cert_tmpfs(info)
+            if not ok:
+                await self._emit("cert_installed", False, message)
+                return
+            conn.certInstalled = True
+            conn.certMode = "system"
+            await self._emit("cert_installed", True, message)
         else:
-            ok, message = await self._install_cert_tmpfs(info)
-        if not ok:
-            await self._emit("cert_installed", False, message)
-            return
-        conn.certInstalled = True
-        await self._emit("cert_installed", True, message)
+            ok, message = await self._install_cert_user(info)
+            if not ok:
+                await self._emit("cert_installed", False, message)
+                return
+            conn.certInstalled = False
+            conn.certMode = "user"
+            await self._emit("cert_installed", True, message)
 
-        # 7) Point the emulator at our proxy --------------------------------
+        # 3) Point the device at our proxy (works without root) -------------
         host_port = f"{host_lan_ip()}:{PROXY_PORT}"
         conn.hostProxy = host_port
         res = await self.adb.set_proxy(host_port)
         if not res.ok:
             await self._emit("proxy_set", False, f"failed to set proxy: {res.text}")
             return
-        await self._emit("proxy_set", True, f"emulator proxy → {host_port}")
+        await self._emit("proxy_set", True, f"device proxy → {host_port}")
 
-        # 8) Done -----------------------------------------------------------
-        conn.connected = True
-        await self._emit("connected", True, "Connected — app traffic should now flow.")
+        # 4) Capturing -----------------------------------------------------
+        conn.capturing = True
+        if conn.certMode == "user":
+            await self._emit(
+                "capturing", True,
+                "Capturing. HTTP flows now. For HTTPS, install the CA copied to the device's "
+                "Downloads (see the cert step) — only apps that trust user CAs (and browsers) "
+                "will decrypt.",
+            )
+        else:
+            await self._emit("capturing", True, "Capturing — device traffic flows to the proxy.")
 
     # --- cert install strategies ------------------------------------------
 
@@ -210,6 +268,23 @@ class ConnectController:
         if not await self.adb.file_exists(remote):
             return False, "cert not present after push"
         return True, f"CA installed: {info.android_filename}"
+
+    async def _install_cert_user(self, info) -> tuple[bool, str]:
+        """Non-rooted: copy the CA to the device so the user can install it as a
+        *user* certificate. We can't write the system store without root, so we
+        push the PEM (as .crt) to Downloads and tell the user how to add it.
+        HTTPS then decrypts for browsers and any app that trusts user CAs.
+        """
+        remote = "/sdcard/Download/nox-mitmproxy-ca.crt"
+        res = await self.adb.push(str(info.pem_path), remote)
+        if not res.ok:
+            return False, f"failed to copy CA to device: {res.text}"
+        return True, (
+            "CA copied to the device's Downloads as nox-mitmproxy-ca.crt. To decrypt "
+            "HTTPS, install it: Settings → Security → (More security settings →) "
+            "Install a certificate → CA certificate → pick nox-mitmproxy-ca.crt. "
+            "Only apps that trust user CAs (and browsers) will decrypt."
+        )
 
     async def _install_cert_tmpfs(self, info) -> tuple[bool, str]:
         """Android 10–13: tmpfs overlay over the cacerts dir (resets on reboot)."""

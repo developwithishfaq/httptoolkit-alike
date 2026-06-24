@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
@@ -19,11 +21,36 @@ from . import prereqs as prereqs_mod
 from . import resend as resend_mod
 from .config import WEB_HOST, WEB_PORT
 from .connect import ConnectController
+from .frida_controller import FridaController
 from .netutil import host_lan_ip
-from .protocol import error_msg, prereqs_msg, rules_msg, serialize_flow, status_msg
+from .protocol import (
+    error_msg,
+    frida_status_msg,
+    prereqs_msg,
+    rules_msg,
+    serialize_flow,
+    status_msg,
+)
 from .state import AppState
 
-FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+def _frontend_dist() -> Path:
+    """Locate the built frontend.
+
+    Resolution order so the same code works in source checkouts and in a
+    PyInstaller bundle (the desktop app, Phase 2):
+      1. NOX_FRONTEND_DIST env var (explicit override),
+      2. <bundle>/frontend/dist when frozen (added via --add-data),
+      3. repo-relative ../frontend/dist for `python -m backend` from source.
+    """
+    override = os.environ.get("NOX_FRONTEND_DIST")
+    if override:
+        return Path(override)
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / "frontend" / "dist"
+    return Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+
+FRONTEND_DIST = _frontend_dist()
 
 
 class Hub:
@@ -59,6 +86,7 @@ class Server:
         self.state = state
         self.hub = Hub()
         self.connect = ConnectController(state, self.hub.broadcast)
+        self.frida = FridaController(state, self.hub.broadcast, self.connect)
         self.app = web.Application()
         self._runner: Optional[web.AppRunner] = None
         self._tasks: set[asyncio.Task] = set()
@@ -115,6 +143,10 @@ class Server:
             await ws.send_str(json.dumps(flow))
         await ws.send_str(json.dumps(rules_msg(self.state.rules.list)))
         await ws.send_str(json.dumps(prereqs_msg(prereqs_mod.gather())))
+        await ws.send_str(json.dumps(
+            frida_status_msg("frida_init", self.state.frida.available,
+                             self.state.frida.reason or "ready", self.state.frida.to_dict())
+        ))
 
         try:
             async for msg in ws:
@@ -146,11 +178,29 @@ class Server:
         elif action == "connect":
             self._spawn(self.connect.connect())
 
+        elif action == "intercept_traffic":
+            self._spawn(self.connect.intercept_traffic())
+
+        elif action == "stop_intercept":
+            self._spawn(self.connect.stop_intercept())
+
         elif action == "disconnect":
             self._spawn(self.connect.disconnect())
 
         elif action == "reboot_device":
             self._spawn(self.connect.reboot_device())
+
+        elif action == "frida_start":
+            self._spawn(self.frida.start_server())
+
+        elif action == "frida_list_apps":
+            self._spawn(self.frida.list_apps())
+
+        elif action == "frida_intercept":
+            self._spawn(self.frida.intercept_app(payload.get("package", "")))
+
+        elif action == "frida_stop":
+            self._spawn(self.frida.stop())
 
         elif action == "forward":
             await self._forward(ws, payload.get("id"), payload.get("edits"))

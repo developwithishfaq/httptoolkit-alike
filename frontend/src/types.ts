@@ -34,12 +34,15 @@ export interface Flow {
 }
 
 export interface ConnState {
-  connected: boolean;
+  connected: boolean; // ADB device link established (gates the other features)
+  capturing: boolean; // device-wide "Intercept traffic" active (CA + proxy set)
   proxyRunning: boolean;
   certInstalled: boolean;
   deviceSerial: string | null;
   androidSdk: number | null;
   hostProxy: string | null;
+  rooted: boolean | null;
+  certMode: "system" | "user" | null;
 }
 
 export interface StatusMsg {
@@ -48,6 +51,29 @@ export interface StatusMsg {
   ok: boolean;
   message: string;
   state: ConnState;
+}
+
+// Per-app Frida interception state (separate from the system-proxy ConnState).
+export interface FridaState {
+  available: boolean;       // feature can run on this host (pkg + binary present)
+  serverRunning: boolean;   // frida-server up + host attached
+  targetApp: string | null; // package currently intercepted
+  targetPid: number | null;
+  fridaVersion: string | null;
+  reason: string | null;    // why unavailable / last error, for the UI
+}
+
+export interface FridaMsg {
+  type: "frida";
+  step: string;
+  ok: boolean;
+  message: string;
+  frida: FridaState;
+}
+
+export interface FridaAppsMsg {
+  type: "frida_apps";
+  apps: string[];
 }
 
 export interface RuleMatch {
@@ -114,6 +140,8 @@ export interface ClearedMsg {
 export type ServerMsg =
   | Flow
   | StatusMsg
+  | FridaMsg
+  | FridaAppsMsg
   | RulesMsg
   | PrereqsMsg
   | ErrorMsg
@@ -121,6 +149,8 @@ export type ServerMsg =
 
 export type ClientAction =
   | { action: "connect" }
+  | { action: "intercept_traffic" }
+  | { action: "stop_intercept" }
   | { action: "disconnect" }
   | { action: "reboot_device" }
   | { action: "clear" }
@@ -137,4 +167,8 @@ export type ClientAction =
         token: string;
       };
     }
-  | { action: "check_prereqs" };
+  | { action: "check_prereqs" }
+  | { action: "frida_start" }
+  | { action: "frida_list_apps" }
+  | { action: "frida_intercept"; package: string }
+  | { action: "frida_stop" };

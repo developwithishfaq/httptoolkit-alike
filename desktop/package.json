@@ -1,0 +1,52 @@
+{
+  "name": "nox-inspector-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Electron desktop shell for the Nox Traffic Inspector & Interceptor",
+  "main": "main.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "electron .",
+    "dev": "cross-env NOX_DESKTOP_MODE=dev electron .",
+    "dev:all": "powershell -ExecutionPolicy Bypass -File dev.ps1",
+    "build:frontend": "npm --prefix ../frontend run build",
+    "build:backend": "pyinstaller packaging/nox-backend.spec --noconfirm --distpath packaging/dist --workpath packaging/build",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.noxinspector.app",
+    "productName": "Nox Traffic Inspector",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "packaging/dist/nox-backend",
+        "to": "backend"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "Nox Traffic Inspector"
+    }
+  }
+}

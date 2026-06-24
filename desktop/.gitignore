@@ -1,0 +1,5 @@
+node_modules/
+dist/
+release/
+packaging/dist/
+packaging/build/

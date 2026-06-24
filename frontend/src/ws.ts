@@ -29,6 +29,12 @@ function handleMessage(raw: string) {
       store.setConn(msg.state);
       store.setStatus({ step: msg.step, ok: msg.ok, message: msg.message });
       break;
+    case "frida":
+      store.applyFridaStep(msg);
+      break;
+    case "frida_apps":
+      store.setFridaApps(msg.apps);
+      break;
     case "rules":
       store.setRules(msg.rules);
       break;

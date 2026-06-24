@@ -114,12 +114,44 @@ class Rules:
 
 @dataclass
 class ConnectionState:
+    # `connected` is the ADB device *link* only (device online + root detected).
+    # It is the prerequisite that gates the other two features (capture + Frida).
     connected: bool = False
+    # `capturing` is the device-wide "Intercept traffic" feature: CA installed +
+    # device http_proxy pointed at mitmproxy. Separate from `connected` so the UI
+    # can enable/disable it independently once a device is linked.
+    capturing: bool = False
     proxyRunning: bool = False
     certInstalled: bool = False
     deviceSerial: Optional[str] = None
     androidSdk: Optional[int] = None
     hostProxy: Optional[str] = None
+    rooted: Optional[bool] = None
+    # How the CA was provisioned: "system" (rooted, full HTTPS), "user" (pushed
+    # for manual user-cert install — HTTPS only for apps that trust user CAs),
+    # or None (not attempted).
+    certMode: Optional[str] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+# --- frida (per-app interception) state ------------------------------------
+
+
+@dataclass
+class FridaState:
+    """Tracks the per-app Frida interception path (separate from the system
+    proxy connect). `available` reflects whether the feature can run at all on
+    this host (frida python package importable AND a server binary bundled for
+    the device); the rest tracks the live session."""
+
+    available: bool = False
+    serverRunning: bool = False
+    targetApp: Optional[str] = None        # package currently intercepted
+    targetPid: Optional[int] = None        # its spawned PID
+    fridaVersion: Optional[str] = None      # host frida package version
+    reason: Optional[str] = None            # why unavailable / last error, for the UI
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -134,3 +166,4 @@ class AppState:
     pending: PendingFlows = field(default_factory=PendingFlows)
     rules: Rules = field(default_factory=Rules)
     conn: ConnectionState = field(default_factory=ConnectionState)
+    frida: FridaState = field(default_factory=FridaState)

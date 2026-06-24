@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ConnState, Flow, Prereqs, Rule } from "./types";
+import type { ConnState, Flow, FridaState, Prereqs, Rule } from "./types";
 
 // Prefill for the Resend screen. Headers are kept as ordered pairs so the
 // editor can show/edit duplicates and preserve order.
@@ -12,28 +12,76 @@ export interface ResendSeed {
 
 const MAX_FLOWS = 5000;
 
-// Ordered Connect steps for the checklist UI (SPEC §7.5).
+// Feature 1 — "Connect device (ADB)" link steps (no cert/proxy here).
 export const CONNECT_STEPS: { key: string; label: string }[] = [
   { key: "adb_found", label: "adb" },
-  { key: "proxy_running", label: "proxy" },
   { key: "device_connected", label: "device" },
   { key: "rooted", label: "root" },
   { key: "android_checked", label: "android" },
-  { key: "cert_installed", label: "cert" },
-  { key: "proxy_set", label: "set proxy" },
-  { key: "connected", label: "connected" },
+  { key: "connected", label: "linked" },
 ];
 const STEP_KEYS = new Set(CONNECT_STEPS.map((s) => s.key));
+
+// Feature 2 — "Intercept traffic" (device-wide capture) steps.
+export const INTERCEPT_STEPS: { key: string; label: string }[] = [
+  { key: "proxy_running", label: "proxy" },
+  { key: "cert_installed", label: "cert" },
+  { key: "proxy_set", label: "set proxy" },
+  { key: "capturing", label: "capturing" },
+];
+const INTERCEPT_STEP_KEYS = new Set(INTERCEPT_STEPS.map((s) => s.key));
+
+// Ordered Frida steps for the per-app interception checklist.
+export const FRIDA_STEPS: { key: string; label: string }[] = [
+  { key: "frida_device", label: "device" },
+  { key: "frida_abi", label: "cpu" },
+  { key: "frida_push", label: "push" },
+  { key: "frida_launch", label: "server" },
+  { key: "frida_connect", label: "attach" },
+  { key: "frida_inject", label: "inject" },
+];
+const FRIDA_STEP_KEYS = new Set(FRIDA_STEPS.map((s) => s.key));
 
 export interface StepState {
   ok: boolean;
   message: string;
 }
 
+// Which parts of a flow the free-text box scans. Toggleable so the user can
+// narrow a noisy search (e.g. body-only) — by default all four are on so the
+// box "just finds it" wherever it lives.
+export type FilterScope = "url" | "headers" | "reqBody" | "respBody";
+
+export const SCOPE_LABELS: { key: FilterScope; label: string }[] = [
+  { key: "url", label: "URL" },
+  { key: "headers", label: "Headers" },
+  { key: "reqBody", label: "Req body" },
+  { key: "respBody", label: "Resp body" },
+];
+
 export interface Filters {
   text: string;
   method: string; // "" = any
   statusClass: string; // "", "2", "3", "4", "5"
+  scopes: Record<FilterScope, boolean>;
+}
+
+export const DEFAULT_SCOPES: Record<FilterScope, boolean> = {
+  url: true,
+  headers: true,
+  reqBody: true,
+  respBody: true,
+};
+
+// True when filters are at their "show everything" defaults — drives the
+// "active filters" indicator on the toolbar.
+export function filtersActive(f: Filters): boolean {
+  return (
+    f.text.trim() !== "" ||
+    f.method !== "" ||
+    f.statusClass !== "" ||
+    SCOPE_LABELS.some((s) => !f.scopes[s.key])
+  );
 }
 
 interface AppStore {
@@ -41,8 +89,17 @@ interface AppStore {
   wsConnected: boolean;
   conn: ConnState;
   lastStatus: { step: string; ok: boolean; message: string } | null;
-  steps: Record<string, StepState>;
+  steps: Record<string, StepState>;          // feature 1 (connect/link) checklist
   connecting: boolean;
+  interceptSteps: Record<string, StepState>; // feature 2 (intercept traffic) checklist
+  intercepting: boolean;
+
+  // frida (per-app interception)
+  frida: FridaState;
+  fridaSteps: Record<string, StepState>;
+  fridaStatus: { step: string; ok: boolean; message: string } | null;
+  fridaApps: string[];
+  fridaBusy: boolean; // a start/inject orchestration is in flight
 
   // flows
   flows: Map<string, Flow>;
@@ -69,12 +126,19 @@ interface AppStore {
   setStatus: (s: { step: string; ok: boolean; message: string }) => void;
   setMainView: (v: "intercept" | "view") => void;
   startConnect: () => void;
+  startIntercept: () => void;
+  applyFridaStep: (m: { step: string; ok: boolean; message: string; frida: FridaState }) => void;
+  setFridaApps: (apps: string[]) => void;
+  startFrida: () => void;
+  beginFridaInject: () => void;
   upsertFlow: (f: Flow) => void;
   clearFlows: () => void;
   select: (id: string | null) => void;
   setAutoscroll: (v: boolean) => void;
   setCapturePaused: (v: boolean) => void;
   setFilters: (f: Partial<Filters>) => void;
+  toggleScope: (scope: FilterScope) => void;
+  resetFilters: () => void;
   setRules: (r: Rule[]) => void;
   setRulesOpen: (v: boolean) => void;
   openRulesWith: (seed: Rule) => void;
@@ -90,15 +154,33 @@ export const useStore = create<AppStore>((set) => ({
   wsConnected: false,
   conn: {
     connected: false,
+    capturing: false,
     proxyRunning: false,
     certInstalled: false,
     deviceSerial: null,
     androidSdk: null,
     hostProxy: null,
+    rooted: null,
+    certMode: null,
   },
   lastStatus: null,
   steps: {},
   connecting: false,
+  interceptSteps: {},
+  intercepting: false,
+
+  frida: {
+    available: false,
+    serverRunning: false,
+    targetApp: null,
+    targetPid: null,
+    fridaVersion: null,
+    reason: null,
+  },
+  fridaSteps: {},
+  fridaStatus: null,
+  fridaApps: [],
+  fridaBusy: false,
 
   flows: new Map(),
   order: [],
@@ -107,7 +189,7 @@ export const useStore = create<AppStore>((set) => ({
   mainView: "intercept",
   autoscroll: true,
   capturePaused: false,
-  filters: { text: "", method: "", statusClass: "" },
+  filters: { text: "", method: "", statusClass: "", scopes: { ...DEFAULT_SCOPES } },
   rules: [],
   rulesOpen: false,
   ruleSeed: null,
@@ -123,16 +205,53 @@ export const useStore = create<AppStore>((set) => ({
     set((state) => {
       const next: Partial<AppStore> = { lastStatus: s };
       if (STEP_KEYS.has(s.step)) {
+        // Feature 1 — device link checklist.
         next.steps = { ...state.steps, [s.step]: { ok: s.ok, message: s.message } };
-        // Terminal: success on the final step, or any checklist-step failure.
+        // Terminal: success on the final step ("connected"=linked), or any failure.
         if (s.step === "connected" ? s.ok : !s.ok) next.connecting = false;
-        // On a fully successful connect, jump straight to the traffic view.
-        if (s.step === "connected" && s.ok) next.mainView = "view";
+      } else if (INTERCEPT_STEP_KEYS.has(s.step)) {
+        // Feature 2 — device-wide capture checklist.
+        next.interceptSteps = { ...state.interceptSteps, [s.step]: { ok: s.ok, message: s.message } };
+        if (s.step === "capturing" ? s.ok : !s.ok) next.intercepting = false;
+        // Only once traffic is actually flowing do we jump to the traffic view.
+        if (s.step === "capturing" && s.ok) next.mainView = "view";
+      } else if (!s.ok) {
+        // A non-step failure (e.g. "capture"/"connect" guard) clears both spinners.
+        next.connecting = false;
+        next.intercepting = false;
       }
       return next;
     }),
   setMainView: (v) => set({ mainView: v }),
   startConnect: () => set({ connecting: true, steps: {}, lastStatus: null }),
+  startIntercept: () => set({ intercepting: true, interceptSteps: {}, lastStatus: null }),
+
+  applyFridaStep: (m) =>
+    set((state) => {
+      const next: Partial<AppStore> = { frida: m.frida, fridaStatus: m };
+      if (FRIDA_STEP_KEYS.has(m.step)) {
+        next.fridaSteps = { ...state.fridaSteps, [m.step]: { ok: m.ok, message: m.message } };
+        // The flow has two phases that each end "busy". The start phase ends at
+        // frida_connect (server up → app picker becomes interactive); the inject
+        // phase ends at frida_inject. Either terminal, or any failure, frees the UI.
+        const startPhaseDone = m.step === "frida_connect" && m.ok;
+        const injectDone = m.step === "frida_inject";
+        if (startPhaseDone || injectDone || !m.ok) next.fridaBusy = false;
+      } else if (!m.ok) {
+        next.fridaBusy = false;
+      }
+      return next;
+    }),
+  setFridaApps: (apps) => set({ fridaApps: apps }),
+  // Start frida-server: reset the checklist (device→attach), keep app picker.
+  startFrida: () => set({ fridaBusy: true, fridaSteps: {}, fridaStatus: null }),
+  // Begin injecting into a chosen app: only the inject step is pending now.
+  beginFridaInject: () =>
+    set((s) => {
+      const kept: Record<string, StepState> = { ...s.fridaSteps };
+      delete kept.frida_inject;
+      return { fridaBusy: true, fridaSteps: kept };
+    }),
 
   upsertFlow: (f) =>
     set((state) => {
@@ -162,6 +281,18 @@ export const useStore = create<AppStore>((set) => ({
   setAutoscroll: (v) => set({ autoscroll: v }),
   setCapturePaused: (v) => set({ capturePaused: v }),
   setFilters: (f) => set((s) => ({ filters: { ...s.filters, ...f } })),
+  toggleScope: (scope) =>
+    set((s) => {
+      const scopes = { ...s.filters.scopes, [scope]: !s.filters.scopes[scope] };
+      // Never let the user turn off every scope — a text query with no field to
+      // search would silently hide everything. Keep the one they just toggled.
+      if (!SCOPE_LABELS.some((sc) => scopes[sc.key])) scopes[scope] = true;
+      return { filters: { ...s.filters, scopes } };
+    }),
+  resetFilters: () =>
+    set((s) => ({
+      filters: { ...s.filters, text: "", method: "", statusClass: "", scopes: { ...DEFAULT_SCOPES } },
+    })),
   setRules: (r) => set({ rules: r }),
   setRulesOpen: (v) => set(v ? { rulesOpen: true } : { rulesOpen: false, ruleSeed: null }),
   openRulesWith: (seed) => set({ rulesOpen: true, ruleSeed: seed }),
@@ -195,7 +326,38 @@ export function selectPending(state: AppStore): Flow[] {
   return out;
 }
 
-// Derived helper: apply filters to the ordered flow list.
+function headersContain(h: Record<string, string> | undefined, text: string): boolean {
+  if (!h) return false;
+  for (const k of Object.keys(h)) {
+    if (k.toLowerCase().includes(text) || (h[k] ?? "").toLowerCase().includes(text)) return true;
+  }
+  return false;
+}
+
+// Returns the first enabled scope in which `text` (already trimmed + lowercased)
+// is found, or null for no match. The scopes are probed cheap→expensive (URL,
+// then headers, then bodies) with early-exit so a busy filter over 5000 flows
+// rarely touches a body. Callers pass non-empty text; empty text → null.
+export function matchedScope(
+  f: Flow,
+  text: string,
+  scopes: Record<FilterScope, boolean>,
+): FilterScope | null {
+  if (!text) return null;
+  if (scopes.url && `${f.method} ${f.status ?? ""} ${f.url}`.toLowerCase().includes(text))
+    return "url";
+  if (scopes.headers && (headersContain(f.reqHeaders, text) || headersContain(f.respHeaders, text)))
+    return "headers";
+  if (scopes.reqBody && !f.reqBinary && f.reqBody && f.reqBody.toLowerCase().includes(text))
+    return "reqBody";
+  if (scopes.respBody && !f.respBinary && f.respBody && f.respBody.toLowerCase().includes(text))
+    return "respBody";
+  return null;
+}
+
+// Derived helper: apply filters to the ordered flow list. The free-text box is
+// an advanced multi-field search (URL / headers / request + response bodies),
+// scoped by `filters.scopes`; method and status narrow it further.
 export function selectVisibleFlows(state: AppStore): Flow[] {
   const { flows, order, filters } = state;
   const text = filters.text.trim().toLowerCase();
@@ -207,12 +369,7 @@ export function selectVisibleFlows(state: AppStore): Flow[] {
     if (filters.statusClass) {
       if (!f.status || String(f.status)[0] !== filters.statusClass) continue;
     }
-    if (text) {
-      // Single filter box matches across method, status, host and path so it
-      // covers HTTP Toolkit's "filter by method, host, headers, status" box.
-      const hay = `${f.method} ${f.status ?? ""} ${f.host}${f.path}`.toLowerCase();
-      if (!hay.includes(text)) continue;
-    }
+    if (text && matchedScope(f, text, filters.scopes) === null) continue;
     out.push(f);
   }
   return out;

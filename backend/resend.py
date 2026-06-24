@@ -1,7 +1,8 @@
 """Resend (replay) a request through our own proxy (SPEC §8).
 
 The request is issued from the host straight at the target, but routed through
-mitmproxy on 127.0.0.1:8080 so the Engine captures it like any other flow — it
+mitmproxy on 127.0.0.1:51080 (config.PROXY_PORT) so the Engine captures it like
+any other flow — it
 then appears in the UI's flow list automatically, fully decrypted. A
 ``X-Nox-Replay`` token lets the engine tag the flow and lets the Resend screen
 correlate the captured result back to the send it issued.

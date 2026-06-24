@@ -22,7 +22,7 @@ from typing import Optional
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
-from .config import MITM_CA_PEM
+from .config import MITM_CA_PEM, SUBPROCESS_NO_WINDOW
 
 
 @dataclass
@@ -90,6 +90,7 @@ class CertManager:
                 capture_output=True,
                 text=True,
                 timeout=10,
+                creationflags=SUBPROCESS_NO_WINDOW,  # no popup cmd window (Windows)
             )
         except (OSError, subprocess.SubprocessError):
             return None
