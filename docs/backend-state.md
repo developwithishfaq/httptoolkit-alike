@@ -20,8 +20,12 @@ All runtime state in one process so the addon, WS handler, and rule list share m
 - `ConnectionState` (dataclass) — `connected, proxyRunning, certInstalled, deviceSerial,
   androidSdk, hostProxy, rooted, certMode`. `to_dict()` for the wire. **Mirrors
   `ConnState` in [types.ts](../frontend/src/types.ts).**
-- `AppState` (dataclass) — container: `store, pending, rules, conn`. Built once in
-  `__main__.amain`.
+- `FridaState` (dataclass) — `available, serverRunning, targetApp, targetPid,
+  fridaVersion, reason`. `to_dict()` for the wire. Tracks the per-app Frida path,
+  **separate** from `ConnectionState`. **Mirrors `FridaState` in
+  [types.ts](../frontend/src/types.ts).** See [frida.md](frida.md).
+- `AppState` (dataclass) — container: `store, pending, rules, conn, frida`. Built once
+  in `__main__.amain`.
 
 ## Traps
 
@@ -29,6 +33,8 @@ All runtime state in one process so the addon, WS handler, and rule list share m
   A paused flow is in both: serialized in the store (phase `paused`) and live in pending.
 - `certInstalled` is True only for **system**-store installs; user-cert mode leaves it
   False but sets `certMode="user"` (see [connect.md](flows/connect.md)).
+- `FridaState.available` reflects **host capability** (frida pkg + bundled server binary),
+  not whether a device is ready — the UI also gates on `conn.connected`/`conn.rooted`.
 - Rules persistence is best-effort (`save()` swallows `OSError`).
 
 ## Related

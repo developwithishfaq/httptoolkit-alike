@@ -44,8 +44,10 @@ async def amain() -> None:
         await master.run()
     finally:
         # Clean shutdown: clear the device proxy so the emulator isn't left
-        # pointing at a dead host, then stop the web site (SPEC §10).
+        # pointing at a dead host, tear down any Frida session/server, then stop
+        # the web site (SPEC §10).
         await server.connect.clear_device_proxy()
+        await server.frida.shutdown()
         await server.stop()
 
 

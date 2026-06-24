@@ -16,19 +16,22 @@ server→client message has a `type`, every client→server message has an `acti
 - `_body_text(message)` → `(text, is_binary, truncated)`. Binary/undecodable → `text=None`,
   reports size instead. Truncates past `MAX_BODY_BYTES` (256 KiB).
 - Control builders: `status_msg(step, ok, message, state)`, `rules_msg(rules)`,
-  `prereqs_msg(prereqs)`, `error_msg(message)`.
+  `prereqs_msg(prereqs)`, `error_msg(message)`, `frida_status_msg(step, ok, message, frida)`
+  (carries a `FridaState` snapshot), `frida_apps_msg(apps)` (installed package list).
 
 ## file → symbol (frontend types)
 
-- `Flow`, `FlowPhase`, `ConnState`, `StatusMsg`, `Rule`/`RuleMatch`/`RuleAction`/`MockResponse`,
-  `Prereqs`/`PrereqCheck`, `ServerMsg` (union of all `type`s), `ClientAction` (union of all
-  `action`s).
+- `Flow`, `FlowPhase`, `ConnState`, `StatusMsg`, `FridaState`/`FridaMsg`/`FridaAppsMsg`,
+  `Rule`/`RuleMatch`/`RuleAction`/`MockResponse`, `Prereqs`/`PrereqCheck`,
+  `ServerMsg` (union of all `type`s), `ClientAction` (union of all `action`s).
 
 ## Wire vocabulary
 
-- Server→client `type`: `flow`, `status`, `rules`, `prereqs`, `error`, `cleared`.
+- Server→client `type`: `flow`, `status`, `frida`, `frida_apps`, `rules`, `prereqs`,
+  `error`, `cleared`.
 - Client→server `action`: `connect`, `disconnect`, `reboot_device`, `clear`, `set_rules`,
-  `forward`, `drop`, `resend`, `check_prereqs`.
+  `forward`, `drop`, `resend`, `check_prereqs`, `frida_start`, `frida_list_apps`,
+  `frida_intercept`, `frida_stop`.
 - Flow flags layered on by the engine/server: `dropped`, `mocked`, `reqMocked`, `error`,
   `replay`, `replayToken`.
 

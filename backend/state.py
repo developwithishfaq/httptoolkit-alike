@@ -130,6 +130,27 @@ class ConnectionState:
         return asdict(self)
 
 
+# --- frida (per-app interception) state ------------------------------------
+
+
+@dataclass
+class FridaState:
+    """Tracks the per-app Frida interception path (separate from the system
+    proxy connect). `available` reflects whether the feature can run at all on
+    this host (frida python package importable AND a server binary bundled for
+    the device); the rest tracks the live session."""
+
+    available: bool = False
+    serverRunning: bool = False
+    targetApp: Optional[str] = None        # package currently intercepted
+    targetPid: Optional[int] = None        # its spawned PID
+    fridaVersion: Optional[str] = None      # host frida package version
+    reason: Optional[str] = None            # why unavailable / last error, for the UI
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 # --- top-level container ---------------------------------------------------
 
 
@@ -139,3 +160,4 @@ class AppState:
     pending: PendingFlows = field(default_factory=PendingFlows)
     rules: Rules = field(default_factory=Rules)
     conn: ConnectionState = field(default_factory=ConnectionState)
+    frida: FridaState = field(default_factory=FridaState)

@@ -9,6 +9,28 @@ import os
 import sys
 from pathlib import Path
 
+# --- Resource locator (works in source + PyInstaller bundle) ----------------
+
+
+def _resource_root() -> Path:
+    """Base dir for bundled runtime resources (frida-server binaries, scripts).
+
+    Mirrors server._frontend_dist resolution so the same code works from a
+    source checkout and inside a frozen one-folder bundle:
+      1. NOX_RESOURCE_ROOT env override,
+      2. <bundle>/_MEIPASS when frozen (PyInstaller --add-data lands here),
+      3. repo root for `python -m backend` from source.
+    """
+    override = os.environ.get("NOX_RESOURCE_ROOT")
+    if override:
+        return Path(override)
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+    return Path(__file__).resolve().parent.parent
+
+
+RESOURCE_ROOT = _resource_root()
+
 # --- Subprocess (Windows console suppression) ------------------------------
 
 # When the app runs as a windowed (no-console) frozen exe, every child process
@@ -83,3 +105,39 @@ RULES_PATH = APP_DATA_DIR / "rules.json"
 # mitmproxy CA location (created on first proxy run).
 MITM_CA_DIR = Path.home() / ".mitmproxy"
 MITM_CA_PEM = MITM_CA_DIR / "mitmproxy-ca-cert.pem"
+
+# --- Frida (per-app interception + SSL unpinning) --------------------------
+
+# frida-server's default control port on the device. We `adb forward` a host
+# port to this, then the host frida package talks to it as a remote device.
+FRIDA_SERVER_PORT = 27042
+
+# Where frida-server lives on the device once pushed (under /data/local/tmp so
+# it survives without root-writable /system; it's launched as root though).
+FRIDA_REMOTE_PATH = "/data/local/tmp/nox-frida-server"
+
+# Bundled per-ABI frida-server binaries + injection scripts. Binaries are large
+# (~15 MB each) and version-locked to the host `frida` package, so they are NOT
+# committed — `scripts/fetch-frida-server.py` provisions them into this dir, and
+# the PyInstaller spec / electron-builder bundle whatever is present.
+# Resolved off RESOURCE_ROOT (not __file__) so they work frozen: PyInstaller
+# keeps backend/*.py in the PYZ archive (no on-disk sibling), but bundles these
+# as --add-data under the same relative paths the source tree uses.
+FRIDA_SERVER_DIR = RESOURCE_ROOT / "desktop" / "resources" / "frida-server"
+FRIDA_SCRIPTS_DIR = RESOURCE_ROOT / "backend" / "frida_scripts"
+
+# Android CPU ABI (ro.product.cpu.abi) → frida release arch token. The bundled
+# binary for each is named `frida-server-android-<token>`.
+FRIDA_ABI_MAP = {
+    "arm64-v8a": "arm64",
+    "armeabi-v7a": "arm",
+    "armeabi": "arm",
+    "x86_64": "x86_64",
+    "x86": "x86",
+}
+
+
+def frida_server_binary(abi: str) -> Path:
+    """Path to the bundled frida-server binary for an Android CPU ABI."""
+    token = FRIDA_ABI_MAP.get(abi, abi)
+    return FRIDA_SERVER_DIR / f"frida-server-android-{token}"

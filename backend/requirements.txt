@@ -4,3 +4,6 @@
 mitmproxy>=11.0          # interception engine (DumpMaster + addon API)
 aiohttp>=3.9             # web server + WebSocket, embeds in our asyncio loop
 cryptography>=42.0       # compute subject_hash_old for the CA cert filename
+frida>=17.0              # per-app interception + SSL unpinning (drives frida-server
+                         # on the device). Device binaries are provisioned separately
+                         # by scripts/fetch-frida-server.py and must match this version.

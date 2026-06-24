@@ -64,6 +64,8 @@ Base path for all relative file references below: the **repo root**
 | Wire message shapes / flow serialization | `backend/protocol.py` → `serialize_flow` + `frontend/src/types.ts` | [docs/protocol.md](docs/protocol.md) |
 | In-memory state (flows, pending, rules, conn) | `backend/state.py` → `FlowStore`/`PendingFlows`/`Rules`/`ConnectionState` | [docs/backend-state.md](docs/backend-state.md) |
 | Connect / one-click device setup | `backend/connect.py` → `ConnectController._run_connect` | [docs/flows/connect.md](docs/flows/connect.md) |
+| Frida per-app interception / SSL unpinning | `backend/frida_controller.py` → `FridaController` + `backend/frida_scripts/android-unpinning.js` | [docs/frida.md](docs/frida.md), [docs/flows/frida.md](docs/flows/frida.md) |
+| Provisioning frida-server binaries | `scripts/fetch-frida-server.py` → `main` | [docs/frida.md](docs/frida.md) (Binaries & bundling) |
 | adb control (locate/connect/root/push/proxy) | `backend/adb.py` → `AdbOrchestrator` | [docs/adb.md](docs/adb.md) |
 | CA / certificate handling | `backend/certs.py` → `CertManager` | [docs/certs.md](docs/certs.md) |
 | Rule matching logic | `backend/rules.py` → `first_match` | [docs/rules.md](docs/rules.md) |
@@ -90,7 +92,8 @@ target. See [README.md](README.md) for user docs.
 ## Modules
 
 - `backend/` — Python asyncio: `engine` (mitmproxy addon), `server` (aiohttp WS/REST/static),
-  `connect`+`adb`+`certs` (device setup), `state` (in-memory store/pending/rules/conn),
+  `connect`+`adb`+`certs` (device setup), `frida_controller`+`frida_scripts/` (per-app
+  Frida interception + SSL unpinning), `state` (in-memory store/pending/rules/conn),
   `rules`+`intercept` (matching + edit/mock), `protocol` (wire (de)serialize), `resend`
   (replay), `prereqs`+`netutil` (host checks), `config` (constants).
 - `frontend/` — React + Vite + Tailwind + zustand: `store.ts` (state), `ws.ts` (transport),

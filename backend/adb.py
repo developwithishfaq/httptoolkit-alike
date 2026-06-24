@@ -360,3 +360,68 @@ class AdbOrchestrator:
     async def reboot(self, serial: Optional[str] = None) -> AdbResult:
         serial = serial or self.serial or ""
         return await self._run("-s", serial, "reboot")
+
+    # --- frida helpers -----------------------------------------------------
+
+    async def forward(self, local_port: int, remote_port: int, serial: Optional[str] = None) -> AdbResult:
+        """Map host tcp:local_port → device tcp:remote_port (for frida-server)."""
+        serial = serial or self.serial or ""
+        return await self._run("-s", serial, "forward", f"tcp:{local_port}", f"tcp:{remote_port}")
+
+    async def remove_forward(self, local_port: int, serial: Optional[str] = None) -> AdbResult:
+        serial = serial or self.serial or ""
+        return await self._run("-s", serial, "forward", "--remove", f"tcp:{local_port}")
+
+    async def list_packages(self, third_party_only: bool = True, serial: Optional[str] = None) -> list[str]:
+        """Installed package names. `-3` limits to user-installed apps (the ones
+        worth intercepting); the framework/system apps just add noise."""
+        serial = serial or self.serial or ""
+        flag = "-3" if third_party_only else ""
+        res = await self._shell(serial, f"pm list packages {flag}".strip())
+        if not res.ok:
+            return []
+        pkgs = []
+        for line in res.stdout.splitlines():
+            line = line.strip()
+            if line.startswith("package:"):
+                pkgs.append(line[len("package:"):])
+        return sorted(pkgs)
+
+    async def spawn_shell(self, command: str, serial: Optional[str] = None):
+        """Start a long-lived `adb shell` process and return the Popen handle
+        WITHOUT awaiting it (used to keep frida-server alive). Killing the
+        returned process tears down its device-side child too."""
+        serial = serial or self.serial or ""
+        if not self.adb_path:
+            return None
+        return await asyncio.create_subprocess_exec(
+            self.adb_path, "-s", serial, "shell", command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            creationflags=SUBPROCESS_NO_WINDOW,
+        )
+
+    async def pidof(self, process: str, serial: Optional[str] = None) -> Optional[int]:
+        """First PID of a running process by name, or None. `pidof` is absent on
+        some old builds, so fall back to parsing `ps`."""
+        serial = serial or self.serial or ""
+        res = await self._shell(serial, f"pidof {process}")
+        if res.ok and res.text:
+            try:
+                return int(res.text.split()[0])
+            except (ValueError, IndexError):
+                pass
+        res = await self._shell(serial, f"ps -A | grep {process}")
+        for line in res.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and process in line:
+                try:
+                    return int(parts[1])
+                except ValueError:
+                    continue
+        return None
+
+    async def kill_process(self, process: str, serial: Optional[str] = None) -> AdbResult:
+        """Kill a device-side process by name (best-effort, as root)."""
+        serial = serial or self.serial or ""
+        return await self._shell(serial, f"pkill -f {process}")

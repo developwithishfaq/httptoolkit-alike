@@ -18,6 +18,8 @@ from PyInstaller.utils.hooks import collect_all
 REPO_ROOT = os.path.abspath(os.path.join(SPECPATH, "..", ".."))
 ENTRY = os.path.join(SPECPATH, "nox_backend.py")
 FRONTEND_DIST = os.path.join(REPO_ROOT, "frontend", "dist")
+FRIDA_SCRIPTS = os.path.join(REPO_ROOT, "backend", "frida_scripts")
+FRIDA_SERVER = os.path.join(REPO_ROOT, "desktop", "resources", "frida-server")
 
 datas = []
 binaries = []
@@ -25,8 +27,9 @@ hiddenimports = []
 
 # Pull in everything (submodules, data files, native libs) for packages that
 # load parts dynamically. mitmproxy_rs / mitmproxy_windows carry the Rust .pyd
-# native cores that a plain import graph would miss.
-for pkg in ("mitmproxy", "mitmproxy_rs", "mitmproxy_windows", "aiohttp", "cryptography"):
+# native cores that a plain import graph would miss. `frida` carries a native
+# host extension (_frida) used to drive frida-server, so collect it whole too.
+for pkg in ("mitmproxy", "mitmproxy_rs", "mitmproxy_windows", "aiohttp", "cryptography", "frida"):
     try:
         d, b, h = collect_all(pkg)
         datas += d
@@ -44,6 +47,19 @@ else:
         f"[spec] frontend not built at {FRONTEND_DIST} — run "
         f"`npm --prefix frontend run build` first."
     )
+
+# Frida injection scripts — always present (committed source).
+datas.append((FRIDA_SCRIPTS, os.path.join("backend", "frida_scripts")))
+
+# frida-server device binaries — large, gitignored, provisioned on demand by
+# scripts/fetch-frida-server.py. Bundle them only if present so a build without
+# them still succeeds (the feature then reports itself unavailable at runtime).
+if os.path.isdir(FRIDA_SERVER) and any(
+    n.startswith("frida-server-android-") for n in os.listdir(FRIDA_SERVER)
+):
+    datas.append((FRIDA_SERVER, os.path.join("desktop", "resources", "frida-server")))
+else:
+    print("[spec] no frida-server binaries — Frida feature will be unavailable in this build")
 
 # Defensive extras: mitmproxy's compression/codec deps are sometimes imported
 # lazily and missed by the graph.

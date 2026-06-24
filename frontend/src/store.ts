@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ConnState, Flow, Prereqs, Rule } from "./types";
+import type { ConnState, Flow, FridaState, Prereqs, Rule } from "./types";
 
 // Prefill for the Resend screen. Headers are kept as ordered pairs so the
 // editor can show/edit duplicates and preserve order.
@@ -24,6 +24,17 @@ export const CONNECT_STEPS: { key: string; label: string }[] = [
   { key: "connected", label: "connected" },
 ];
 const STEP_KEYS = new Set(CONNECT_STEPS.map((s) => s.key));
+
+// Ordered Frida steps for the per-app interception checklist.
+export const FRIDA_STEPS: { key: string; label: string }[] = [
+  { key: "frida_device", label: "device" },
+  { key: "frida_abi", label: "cpu" },
+  { key: "frida_push", label: "push" },
+  { key: "frida_launch", label: "server" },
+  { key: "frida_connect", label: "attach" },
+  { key: "frida_inject", label: "inject" },
+];
+const FRIDA_STEP_KEYS = new Set(FRIDA_STEPS.map((s) => s.key));
 
 export interface StepState {
   ok: boolean;
@@ -75,6 +86,13 @@ interface AppStore {
   steps: Record<string, StepState>;
   connecting: boolean;
 
+  // frida (per-app interception)
+  frida: FridaState;
+  fridaSteps: Record<string, StepState>;
+  fridaStatus: { step: string; ok: boolean; message: string } | null;
+  fridaApps: string[];
+  fridaBusy: boolean; // a start/inject orchestration is in flight
+
   // flows
   flows: Map<string, Flow>;
   order: string[]; // insertion order of ids (oldest → newest)
@@ -100,6 +118,10 @@ interface AppStore {
   setStatus: (s: { step: string; ok: boolean; message: string }) => void;
   setMainView: (v: "intercept" | "view") => void;
   startConnect: () => void;
+  applyFridaStep: (m: { step: string; ok: boolean; message: string; frida: FridaState }) => void;
+  setFridaApps: (apps: string[]) => void;
+  startFrida: () => void;
+  beginFridaInject: () => void;
   upsertFlow: (f: Flow) => void;
   clearFlows: () => void;
   select: (id: string | null) => void;
@@ -135,6 +157,19 @@ export const useStore = create<AppStore>((set) => ({
   steps: {},
   connecting: false,
 
+  frida: {
+    available: false,
+    serverRunning: false,
+    targetApp: null,
+    targetPid: null,
+    fridaVersion: null,
+    reason: null,
+  },
+  fridaSteps: {},
+  fridaStatus: null,
+  fridaApps: [],
+  fridaBusy: false,
+
   flows: new Map(),
   order: [],
   selectedId: null,
@@ -168,6 +203,29 @@ export const useStore = create<AppStore>((set) => ({
     }),
   setMainView: (v) => set({ mainView: v }),
   startConnect: () => set({ connecting: true, steps: {}, lastStatus: null }),
+
+  applyFridaStep: (m) =>
+    set((state) => {
+      const next: Partial<AppStore> = { frida: m.frida, fridaStatus: m };
+      if (FRIDA_STEP_KEYS.has(m.step)) {
+        next.fridaSteps = { ...state.fridaSteps, [m.step]: { ok: m.ok, message: m.message } };
+        // Busy clears on the terminal inject step or any step failure.
+        if (m.step === "frida_inject" ? true : !m.ok) next.fridaBusy = false;
+      } else if (!m.ok) {
+        next.fridaBusy = false;
+      }
+      return next;
+    }),
+  setFridaApps: (apps) => set({ fridaApps: apps }),
+  // Start frida-server: reset the checklist (device→attach), keep app picker.
+  startFrida: () => set({ fridaBusy: true, fridaSteps: {}, fridaStatus: null }),
+  // Begin injecting into a chosen app: only the inject step is pending now.
+  beginFridaInject: () =>
+    set((s) => {
+      const kept: Record<string, StepState> = { ...s.fridaSteps };
+      delete kept.frida_inject;
+      return { fridaBusy: true, fridaSteps: kept };
+    }),
 
   upsertFlow: (f) =>
     set((state) => {

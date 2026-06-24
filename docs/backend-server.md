@@ -9,16 +9,19 @@ prod) the static frontend. Owns the client→server action dispatch.
 
 - `Hub` — set of connected `WebSocketResponse`s; `broadcast(msg)` fans a dict to all,
   dropping dead sockets. The Engine and ConnectController call `hub.broadcast`.
-- `Server.__init__` — builds `web.Application`, the `Hub`, and a `ConnectController`
-  wired to `hub.broadcast`. Holds `state: AppState`.
+- `Server.__init__` — builds `web.Application`, the `Hub`, a `ConnectController`, and a
+  `FridaController` (passed the ConnectController so it reuses its adb), all wired to
+  `hub.broadcast`. Holds `state: AppState`.
 - `Server._setup_routes` — `/ws`, `/api/status`, `/api/flows`, `/api/prereqs`; and
   `/` + static mount of `FRONTEND_DIST` **only if it exists**.
 - `Server._spawn` — fire-and-forget background task with a strong ref (so Connect/resend
   keep running while flows stream).
 - `Server._ws_handler` — accepts a WS, sends **initial sync** (status, recent 500 flows,
-  rules, prereqs), then loops on incoming TEXT → `_handle_action`.
+  rules, prereqs, **frida** state), then loops on incoming TEXT → `_handle_action`.
 - `Server._handle_action` — the dispatch table. Actions: `clear`, `set_rules`,
-  `connect`, `disconnect`, `reboot_device`, `forward`, `drop`, `resend`, `check_prereqs`.
+  `connect`, `disconnect`, `reboot_device`, `forward`, `drop`, `resend`, `check_prereqs`,
+  and the Frida set `frida_start`, `frida_list_apps`, `frida_intercept` (`{package}`),
+  `frida_stop` → `FridaController` (see [frida.md](frida.md), [flows/frida.md](flows/frida.md)).
 - `Server._forward` / `_drop` — pop the paused flow from `state.pending`, call
   `intercept_mod.forward/drop`, re-serialize, upsert, broadcast.
 - `Server._resend` — validates spec has a url, calls `resend_mod.resend`; surfaces

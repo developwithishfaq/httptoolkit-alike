@@ -1,5 +1,6 @@
 import { CONNECT_STEPS, useStore } from "../store";
 import { sendAction } from "../ws";
+import FridaCard from "./FridaCard";
 
 // Dedicated Intercept screen (HTTP Toolkit's interception page). One option for
 // now — "Android Device via ADB" — presented as a clickable card. Clicking runs
@@ -48,6 +49,7 @@ export default function InterceptScreen() {
           ) : (
             <AndroidCard onConnect={onConnect} connecting={connecting} />
           )}
+          <FridaCard />
         </div>
 
         {/* live checklist — visible while connecting or after an attempt */}

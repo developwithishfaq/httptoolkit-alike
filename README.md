@@ -20,6 +20,10 @@ Target platform: **Windows 11**. See [SPEC.md](SPEC.md) for the full design.
   query params, header tables, and bodies with JSON pretty-print + raw toggle.
   Binary/oversized bodies are shown as "binary, N bytes", never dumped.
 - **Copy as cURL**, free-text + method + status-class filtering, and Clear.
+- **Android app via Frida** — intercept a single app even when it pins
+  certificates: `frida-server` is pushed to the device and an SSL-unpinning
+  script is injected into the chosen app, routing its traffic to the proxy.
+  Requires a **rooted** device. See [Frida interception](#android-app-via-frida-pinning-bypass) below.
 - Backend already binds the proxy on `0.0.0.0:51080` and generates the mitmproxy
   CA on first run, so M1 (manual cert + proxy) works end-to-end.
 
@@ -165,6 +169,32 @@ method, URL, headers, and body, then **Send**. The replay is routed through the
 proxy, so it's captured like any other flow — it appears in the list (with a ⟳
 badge) and its response is shown inline in the screen. Works with or without a
 connected device.
+
+## Android app via Frida (pinning bypass)
+
+The standard Connect flow sets a device-wide proxy and installs a CA — but apps
+that **pin** their certificate still won't decrypt. The Frida path bypasses that
+for one target app: it runs `frida-server` on the device and injects a script
+that trusts the proxy CA, routes the app's sockets to the proxy, and disables
+certificate pinning. Decrypted traffic then appears in the normal flow list.
+
+**Requirements:** a **rooted** device/emulator (frida-server runs as root) and a
+`frida-server` binary matching the device CPU. The binaries are large and
+version-locked, so they're fetched on demand rather than committed:
+
+```powershell
+# one-time, from the repo root — matches the installed `frida` package version
+python scripts/fetch-frida-server.py            # arm64 + arm (most devices)
+python scripts/fetch-frida-server.py --all      # all four Android ABIs
+```
+
+**Use it:** Connect to the device first, then on the **Intercept** screen click
+**Android app via Frida** → it starts frida-server and shows an app picker →
+pick the app to intercept. The card shows live progress and a **Stop** button.
+If your device isn't rooted (or no binary is bundled) the card explains why it's
+unavailable. Coverage follows the common pinning libraries (TrustManagerImpl,
+okhttp); HTTP Toolkit's MIT unpinning scripts can be dropped into
+`backend/frida_scripts/` for wider coverage.
 
 ## Architecture (one process)
 

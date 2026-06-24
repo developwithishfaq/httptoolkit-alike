@@ -27,6 +27,10 @@ every method returns a structured `AdbResult`. No `shell=True`; always `-s <seri
   - `push`, `chmod`, `push_and_run_script`, `file_exists`.
   - `set_proxy(host_port)` / `clear_proxy()` — `settings put global http_proxy ...`
     (works **without root**). `reboot()`.
+  - Frida helpers (drive [frida.md](frida.md)): `forward`/`remove_forward(local, remote)`
+    (`adb forward tcp:…`), `list_packages(third_party_only)` (`pm list packages -3`),
+    `spawn_shell(cmd)` — returns a **non-awaited** Popen to keep frida-server alive —
+    `pidof(name)` (falls back to `ps | grep`), `kill_process(name)` (`pkill -f`).
 - Nox discovery helpers: `_nox_adb_candidates`, `_registry_nox_bin_dirs`,
   `_bin_dir_from_value`, `_reg_get` — find Nox's bin dir via env roots + Windows uninstall
   registry (`DisplayIcon`/`UninstallString` parsed since `InstallLocation` is often blank).

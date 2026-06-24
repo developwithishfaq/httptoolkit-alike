@@ -115,3 +115,20 @@ def prereqs_msg(prereqs: dict[str, Any]) -> dict[str, Any]:
 
 def error_msg(message: str) -> dict[str, Any]:
     return {"type": "error", "message": message}
+
+
+# --- frida (per-app interception) -----------------------------------------
+
+
+def frida_status_msg(step: str, ok: bool, message: str, frida: dict[str, Any]) -> dict[str, Any]:
+    """A Frida orchestration step result + the current FridaState snapshot.
+
+    Parallels status_msg but carries `frida` state instead of conn state so the
+    UI can drive a separate Frida panel/checklist.
+    """
+    return {"type": "frida", "step": step, "ok": ok, "message": message, "frida": frida}
+
+
+def frida_apps_msg(apps: list[str]) -> dict[str, Any]:
+    """The list of user-installed packages for the app picker."""
+    return {"type": "frida_apps", "apps": apps}
