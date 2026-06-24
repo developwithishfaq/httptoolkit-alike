@@ -196,8 +196,10 @@ export const useStore = create<AppStore>((set) => ({
         next.steps = { ...state.steps, [s.step]: { ok: s.ok, message: s.message } };
         // Terminal: success on the final step, or any checklist-step failure.
         if (s.step === "connected" ? s.ok : !s.ok) next.connecting = false;
-        // On a fully successful connect, jump straight to the traffic view.
-        if (s.step === "connected" && s.ok) next.mainView = "view";
+        // On a fully successful *standalone* connect, jump to the traffic view.
+        // But when this connect is the front half of a Frida start (fridaBusy),
+        // stay on Intercept so the user can pick an app to intercept.
+        if (s.step === "connected" && s.ok && !state.fridaBusy) next.mainView = "view";
       }
       return next;
     }),
@@ -209,8 +211,12 @@ export const useStore = create<AppStore>((set) => ({
       const next: Partial<AppStore> = { frida: m.frida, fridaStatus: m };
       if (FRIDA_STEP_KEYS.has(m.step)) {
         next.fridaSteps = { ...state.fridaSteps, [m.step]: { ok: m.ok, message: m.message } };
-        // Busy clears on the terminal inject step or any step failure.
-        if (m.step === "frida_inject" ? true : !m.ok) next.fridaBusy = false;
+        // The flow has two phases that each end "busy". The start phase ends at
+        // frida_connect (server up → app picker becomes interactive); the inject
+        // phase ends at frida_inject. Either terminal, or any failure, frees the UI.
+        const startPhaseDone = m.step === "frida_connect" && m.ok;
+        const injectDone = m.step === "frida_inject";
+        if (startPhaseDone || injectDone || !m.ok) next.fridaBusy = false;
       } else if (!m.ok) {
         next.fridaBusy = false;
       }
