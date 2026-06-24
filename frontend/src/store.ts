@@ -30,10 +30,41 @@ export interface StepState {
   message: string;
 }
 
+// Which parts of a flow the free-text box scans. Toggleable so the user can
+// narrow a noisy search (e.g. body-only) — by default all four are on so the
+// box "just finds it" wherever it lives.
+export type FilterScope = "url" | "headers" | "reqBody" | "respBody";
+
+export const SCOPE_LABELS: { key: FilterScope; label: string }[] = [
+  { key: "url", label: "URL" },
+  { key: "headers", label: "Headers" },
+  { key: "reqBody", label: "Req body" },
+  { key: "respBody", label: "Resp body" },
+];
+
 export interface Filters {
   text: string;
   method: string; // "" = any
   statusClass: string; // "", "2", "3", "4", "5"
+  scopes: Record<FilterScope, boolean>;
+}
+
+export const DEFAULT_SCOPES: Record<FilterScope, boolean> = {
+  url: true,
+  headers: true,
+  reqBody: true,
+  respBody: true,
+};
+
+// True when filters are at their "show everything" defaults — drives the
+// "active filters" indicator on the toolbar.
+export function filtersActive(f: Filters): boolean {
+  return (
+    f.text.trim() !== "" ||
+    f.method !== "" ||
+    f.statusClass !== "" ||
+    SCOPE_LABELS.some((s) => !f.scopes[s.key])
+  );
 }
 
 interface AppStore {
@@ -75,6 +106,8 @@ interface AppStore {
   setAutoscroll: (v: boolean) => void;
   setCapturePaused: (v: boolean) => void;
   setFilters: (f: Partial<Filters>) => void;
+  toggleScope: (scope: FilterScope) => void;
+  resetFilters: () => void;
   setRules: (r: Rule[]) => void;
   setRulesOpen: (v: boolean) => void;
   openRulesWith: (seed: Rule) => void;
@@ -109,7 +142,7 @@ export const useStore = create<AppStore>((set) => ({
   mainView: "intercept",
   autoscroll: true,
   capturePaused: false,
-  filters: { text: "", method: "", statusClass: "" },
+  filters: { text: "", method: "", statusClass: "", scopes: { ...DEFAULT_SCOPES } },
   rules: [],
   rulesOpen: false,
   ruleSeed: null,
@@ -164,6 +197,18 @@ export const useStore = create<AppStore>((set) => ({
   setAutoscroll: (v) => set({ autoscroll: v }),
   setCapturePaused: (v) => set({ capturePaused: v }),
   setFilters: (f) => set((s) => ({ filters: { ...s.filters, ...f } })),
+  toggleScope: (scope) =>
+    set((s) => {
+      const scopes = { ...s.filters.scopes, [scope]: !s.filters.scopes[scope] };
+      // Never let the user turn off every scope — a text query with no field to
+      // search would silently hide everything. Keep the one they just toggled.
+      if (!SCOPE_LABELS.some((sc) => scopes[sc.key])) scopes[scope] = true;
+      return { filters: { ...s.filters, scopes } };
+    }),
+  resetFilters: () =>
+    set((s) => ({
+      filters: { ...s.filters, text: "", method: "", statusClass: "", scopes: { ...DEFAULT_SCOPES } },
+    })),
   setRules: (r) => set({ rules: r }),
   setRulesOpen: (v) => set(v ? { rulesOpen: true } : { rulesOpen: false, ruleSeed: null }),
   openRulesWith: (seed) => set({ rulesOpen: true, ruleSeed: seed }),
@@ -197,7 +242,38 @@ export function selectPending(state: AppStore): Flow[] {
   return out;
 }
 
-// Derived helper: apply filters to the ordered flow list.
+function headersContain(h: Record<string, string> | undefined, text: string): boolean {
+  if (!h) return false;
+  for (const k of Object.keys(h)) {
+    if (k.toLowerCase().includes(text) || (h[k] ?? "").toLowerCase().includes(text)) return true;
+  }
+  return false;
+}
+
+// Returns the first enabled scope in which `text` (already trimmed + lowercased)
+// is found, or null for no match. The scopes are probed cheap→expensive (URL,
+// then headers, then bodies) with early-exit so a busy filter over 5000 flows
+// rarely touches a body. Callers pass non-empty text; empty text → null.
+export function matchedScope(
+  f: Flow,
+  text: string,
+  scopes: Record<FilterScope, boolean>,
+): FilterScope | null {
+  if (!text) return null;
+  if (scopes.url && `${f.method} ${f.status ?? ""} ${f.url}`.toLowerCase().includes(text))
+    return "url";
+  if (scopes.headers && (headersContain(f.reqHeaders, text) || headersContain(f.respHeaders, text)))
+    return "headers";
+  if (scopes.reqBody && !f.reqBinary && f.reqBody && f.reqBody.toLowerCase().includes(text))
+    return "reqBody";
+  if (scopes.respBody && !f.respBinary && f.respBody && f.respBody.toLowerCase().includes(text))
+    return "respBody";
+  return null;
+}
+
+// Derived helper: apply filters to the ordered flow list. The free-text box is
+// an advanced multi-field search (URL / headers / request + response bodies),
+// scoped by `filters.scopes`; method and status narrow it further.
 export function selectVisibleFlows(state: AppStore): Flow[] {
   const { flows, order, filters } = state;
   const text = filters.text.trim().toLowerCase();
@@ -209,12 +285,7 @@ export function selectVisibleFlows(state: AppStore): Flow[] {
     if (filters.statusClass) {
       if (!f.status || String(f.status)[0] !== filters.statusClass) continue;
     }
-    if (text) {
-      // Single filter box matches across method, status, host and path so it
-      // covers HTTP Toolkit's "filter by method, host, headers, status" box.
-      const hay = `${f.method} ${f.status ?? ""} ${f.host}${f.path}`.toLowerCase();
-      if (!hay.includes(text)) continue;
-    }
+    if (text && matchedScope(f, text, filters.scopes) === null) continue;
     out.push(f);
   }
   return out;

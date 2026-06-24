@@ -20,7 +20,7 @@ Target platform: **Windows 11**. See [SPEC.md](SPEC.md) for the full design.
   query params, header tables, and bodies with JSON pretty-print + raw toggle.
   Binary/oversized bodies are shown as "binary, N bytes", never dumped.
 - **Copy as cURL**, free-text + method + status-class filtering, and Clear.
-- Backend already binds the proxy on `0.0.0.0:8080` and generates the mitmproxy
+- Backend already binds the proxy on `0.0.0.0:51080` and generates the mitmproxy
   CA on first run, so M1 (manual cert + proxy) works end-to-end.
 
 For M0–M2 you set the Nox proxy and install the CA **manually** (steps below).
@@ -36,9 +36,9 @@ M3 automates all of that behind the Connect button.
   - **Android 7 (Nougat) or 9 (Pie)** image. Android 10+ makes the system cert
     store hard to write to; M3 will detect and warn, but for v1 use 7 or 9.
 - **adb** — the tool prefers Nox's bundled `nox_adb.exe`; otherwise `adb` on PATH.
-- Allow **Python through Windows Firewall** on TCP **8080** the first time, or:
+- Allow **Python through Windows Firewall** on TCP **51080** the first time, or:
   ```
-  netsh advfirewall firewall add rule name=NoxProxy dir=in action=allow protocol=TCP localport=8080
+  netsh advfirewall firewall add rule name=NoxProxy dir=in action=allow protocol=TCP localport=51080
   ```
 
 ---
@@ -46,7 +46,7 @@ M3 automates all of that behind the Connect button.
 ## Run (dev)
 
 ```powershell
-# 1) backend  (proxy :8080, web/WS :8770)
+# 1) backend  (proxy :51080, web/WS :8770)
 cd backend
 pip install -r requirements.txt
 cd ..
@@ -58,7 +58,7 @@ npm install
 npm run dev
 ```
 
-Open **http://localhost:5173**. The connection bar should show `WS connected`
+Open **http://localhost:51173**. The connection bar should show `WS connected`
 and `Proxy running`, with the host LAN IP the emulator should point at. Click
 **Diagnostics** to check prerequisites (adb, mitmproxy CA) and copy the firewall
 rule; a missing prerequisite shows an amber dot on that button.
@@ -87,7 +87,7 @@ the backend down. No app code changes; see [desktop/README.md](desktop/README.md
 cd desktop
 npm install
 npm run build:frontend   # builds frontend/dist
-npm start                # opens the native window (backend on :8770/:8080)
+npm start                # opens the native window (backend on :8770/:51080)
 ```
 
 For hot-reload development, run `npm --prefix frontend run dev` in one terminal and
@@ -106,7 +106,7 @@ are the fallback for Android 14+, where the cert store moved to `/apex`:
    `%USERPROFILE%\.mitmproxy\mitmproxy-ca-cert.pem`.
 2. Point Nox at the host proxy (the IP shown in the connection bar), e.g. via adb:
    ```
-   adb -s 127.0.0.1:62001 shell "settings put global http_proxy <HOST_LAN_IP>:8080"
+   adb -s 127.0.0.1:62001 shell "settings put global http_proxy <HOST_LAN_IP>:51080"
    ```
 3. Install the CA into Nox's system store (Android 7/9, root on):
    ```
@@ -127,7 +127,7 @@ are the fallback for Android 14+, where the cert store moved to `/apex`:
 | Milestone | Scope | Status |
 |-----------|-------|--------|
 | **M0** | Scaffold; backend + frontend boot; WS connects | ✅ done |
-| **M1** | Passive capture on `0.0.0.0:8080`, flows stream to UI | ✅ done |
+| **M1** | Passive capture on `0.0.0.0:51080`, flows stream to UI | ✅ done |
 | **M2** | Flow detail (tabs, headers, pretty JSON, binary handling) | ✅ done |
 | **M3** | One-click Connect orchestration (adb → root → cert → proxy) | ✅ done — live checklist; system-CA auto-install on Android 7–13 (≤9 via /system push, 10–13 via tmpfs overlay) |
 | **M4** | Rules panel + intercept / edit / forward / drop | ✅ done — rule actions: pause-for-edit, drop, or mock response; per-card Save (drafts until applied); editor forwards (with edits) or drops; plus a dedicated **Resend** screen that replays requests through the proxy |
@@ -173,12 +173,12 @@ WebSocket handler, the pending-flow registry, and the rule list share memory
 directly — which is what will make intercept→edit→resume reliable in M4.
 
 ```
-Frontend (React/Vite :5173)  ──WS /ws + REST /api──►  Python backend
-                                                       ├ mitmproxy DumpMaster (proxy :8080, 0.0.0.0)
+Frontend (React/Vite :51173)  ──WS /ws + REST /api──►  Python backend
+                                                       ├ mitmproxy DumpMaster (proxy :51080, 0.0.0.0)
                                                        ├ aiohttp web/WS (:8770)
                                                        ├ adb orchestrator (nox_adb/adb subprocess)
                                                        └ cert manager + rules + flow store
-        Nox emulator ──system http_proxy──► host:8080 ──► mitmproxy
+        Nox emulator ──system http_proxy──► host:51080 ──► mitmproxy
 ```
 
 See [SPEC.md §4–§10](SPEC.md) for details.

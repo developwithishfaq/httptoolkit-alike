@@ -6,16 +6,38 @@ Keep this dependency-free so every other module can import it cheaply.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
+
+# --- Subprocess (Windows console suppression) ------------------------------
+
+# When the app runs as a windowed (no-console) frozen exe, every child process
+# we spawn (adb, openssl, ...) would otherwise pop up its OWN console window —
+# the app looks like it's "opening separate cmd windows". CREATE_NO_WINDOW
+# suppresses that so we stay a single GUI process. No-op (0) off Windows.
+# Pass via `creationflags=SUBPROCESS_NO_WINDOW` to subprocess / asyncio spawns.
+if sys.platform == "win32":
+    import subprocess as _subprocess
+
+    SUBPROCESS_NO_WINDOW = _subprocess.CREATE_NO_WINDOW
+else:
+    SUBPROCESS_NO_WINDOW = 0
 
 # --- Network ---------------------------------------------------------------
 
 # mitmproxy listener. Must bind 0.0.0.0 so the Nox emulator can reach it over
 # the virtual network (see SPEC §7.4).
+#
+# Port is intentionally in the IANA dynamic/private range (49152–65535) rather
+# than the usual 8080: 8080 collides constantly with other dev servers/proxies a
+# developer may already be running. 51080 is very unlikely to be taken. If you
+# DO hit a conflict, change it here — every other reference derives from this.
 PROXY_HOST = "0.0.0.0"
-PROXY_PORT = 8080
+PROXY_PORT = 51080
 
 # aiohttp web + WebSocket server. Localhost only — the UI runs on the host.
+# 8770 is deliberately an uncommon port (not a default like 8000/8080/3000), so
+# it's left as-is; collisions are unlikely. The Vite dev proxy targets must match.
 WEB_HOST = "127.0.0.1"
 WEB_PORT = 8770
 

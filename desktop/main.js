@@ -4,7 +4,7 @@
 //   1. Spawn the existing Python backend (`python -m backend`) as a child process.
 //   2. Wait until its web/WS server on 127.0.0.1:8770 is reachable.
 //   3. Open a native window pointing at that origin (prod) or the Vite dev server.
-//   4. Tear the backend down cleanly on quit so no orphan proxy is left on :8080.
+//   4. Tear the backend down cleanly on quit so no orphan proxy is left on :51080.
 //
 // The frontend and backend are unchanged: the backend already serves the built
 // frontend + /ws + /api on one origin, and the frontend builds its URLs from
@@ -19,7 +19,7 @@ const REPO_ROOT = path.resolve(__dirname, "..");
 const WEB_PORT = 8770;
 const WEB_ORIGIN = `http://127.0.0.1:${WEB_PORT}`;
 const HEALTH_URL = `${WEB_ORIGIN}/api/prereqs`;
-const DEV_URL = "http://localhost:5173";
+const DEV_URL = "http://localhost:51173"; // must match frontend/vite.config.ts server.port
 const IS_DEV = process.env.NOX_DESKTOP_MODE === "dev";
 
 let mainWindow = null;
@@ -202,7 +202,7 @@ function fatal(title, detail) {
 
 // --- app lifecycle ---------------------------------------------------------
 
-// Only one instance — two would fight over :8080/:8770.
+// Only one instance — two would fight over :51080/:8770.
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();

@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from .config import ADB_OVERRIDE, NOX_ADB_ENDPOINTS
+from .config import ADB_OVERRIDE, NOX_ADB_ENDPOINTS, SUBPROCESS_NO_WINDOW
 
 
 @dataclass
@@ -197,6 +197,7 @@ class AdbOrchestrator:
                 *args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                creationflags=SUBPROCESS_NO_WINDOW,  # no popup cmd windows (Windows)
             )
             out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:

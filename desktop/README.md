@@ -40,10 +40,10 @@ npm run dev:all        # or:  ./dev.ps1  from the desktop/ folder
 Or run the two pieces manually:
 
 ```powershell
-# terminal 1 — Vite dev server (HMR) on :5173
+# terminal 1 — Vite dev server (HMR) on :51173
 npm --prefix ../frontend run dev
 
-# terminal 2 — Electron in dev mode (spawns the backend, loads :5173)
+# terminal 2 — Electron in dev mode (spawns the backend, loads :51173)
 npm run dev
 ```
 
@@ -57,9 +57,9 @@ window and rerun. **No installer needed for development** — that's only for sh
 1. Spawns `python -m backend` from the repo root (`NOX_PYTHON` → `py -3` → `python`).
 2. Polls `http://127.0.0.1:8770/api/prereqs` until the backend answers (≤30s), showing
    a branded loading screen meanwhile.
-3. Opens a `BrowserWindow` at `127.0.0.1:8770` (prod) or `localhost:5173` (dev).
+3. Opens a `BrowserWindow` at `127.0.0.1:8770` (prod) or `localhost:51173` (dev).
 4. On quit, kills the backend process tree (`taskkill /T` on Windows) so the proxy on
-   `:8080` is never left orphaned. A single-instance lock prevents port conflicts.
+   `:51080` is never left orphaned. A single-instance lock prevents port conflicts.
 
 ## Packaging into a standalone installer (Phase 2 — not yet wired)
 

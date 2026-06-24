@@ -11,10 +11,10 @@ if (-not (Test-Path "$root/frontend/node_modules")) {
     Pop-Location
 }
 
-Write-Host "[dev] starting Vite (new window) -> http://localhost:5173" -ForegroundColor Cyan
+Write-Host "[dev] starting Vite (new window) -> http://localhost:51173" -ForegroundColor Cyan
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd `"$root/frontend`"; npm run dev"
 
-Write-Host "[dev] starting backend (this window) -> proxy :8080, web/ws :8770" -ForegroundColor Cyan
+Write-Host "[dev] starting backend (this window) -> proxy :51080, web/ws :8770" -ForegroundColor Cyan
 Push-Location $root
 python -m backend
 Pop-Location

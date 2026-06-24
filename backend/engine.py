@@ -121,7 +121,7 @@ class Engine:
 
 
 async def build_master(state: AppState, broadcast: Broadcast) -> DumpMaster:
-    """Create a DumpMaster bound to 0.0.0.0:8080 with our Engine addon.
+    """Create a DumpMaster bound to PROXY_HOST:PROXY_PORT (0.0.0.0:51080) with our Engine addon.
 
     The listener must bind 0.0.0.0 so the Nox emulator can reach it (SPEC §7.4).
     Termlog/dumper are disabled — we have our own UI.
