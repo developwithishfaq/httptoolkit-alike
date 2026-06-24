@@ -389,6 +389,18 @@ class AdbOrchestrator:
         serial = serial or self.serial or ""
         return await self._run("-s", serial, "forward", "--remove", f"tcp:{local_port}")
 
+    async def reverse(self, remote_port: int, local_port: int, serial: Optional[str] = None) -> AdbResult:
+        """Map device tcp:remote_port → host tcp:local_port (the opposite of
+        forward). Used so an injected app can reach our proxy via the device's
+        own loopback (127.0.0.1:remote_port) — no host LAN route or inbound
+        firewall rule needed. Works over USB and Wi-Fi alike."""
+        serial = serial or self.serial or ""
+        return await self._run("-s", serial, "reverse", f"tcp:{remote_port}", f"tcp:{local_port}")
+
+    async def remove_reverse(self, remote_port: int, serial: Optional[str] = None) -> AdbResult:
+        serial = serial or self.serial or ""
+        return await self._run("-s", serial, "reverse", "--remove", f"tcp:{remote_port}")
+
     async def list_packages(self, third_party_only: bool = True, serial: Optional[str] = None) -> list[str]:
         """Installed package names. `-3` limits to user-installed apps (the ones
         worth intercepting); the framework/system apps just add noise."""

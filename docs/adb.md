@@ -28,7 +28,10 @@ every method returns a structured `AdbResult`. No `shell=True`; always `-s <seri
   - `set_proxy(host_port)` / `clear_proxy()` — `settings put global http_proxy ...`
     (works **without root**). `reboot()`.
   - Frida helpers (drive [frida.md](frida.md)): `forward`/`remove_forward(local, remote)`
-    (`adb forward tcp:…`), `list_packages(third_party_only)` (`pm list packages -3`),
+    (`adb forward tcp:…`, host→device, used for the frida control port),
+    `reverse`/`remove_reverse(remote, local)` (`adb reverse tcp:…`, device→host, used
+    so the injected app reaches the host SOCKS5 proxy via the device loopback —
+    no LAN route / inbound firewall rule needed), `list_packages(third_party_only)` (`pm list packages -3`),
     `spawn_shell(cmd)` — returns a **non-awaited** Popen to keep frida-server alive —
     `pidof(name)` (falls back to `ps | grep`), `kill_process(name)` (`pkill -f`).
 - Nox discovery helpers: `_nox_adb_candidates`, `_registry_nox_bin_dirs`,

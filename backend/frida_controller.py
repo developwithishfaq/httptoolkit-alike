@@ -24,7 +24,6 @@ from typing import Awaitable, Callable, Optional
 
 from . import config
 from .connect import ConnectController
-from .netutil import host_lan_ip
 from .protocol import frida_apps_msg, frida_status_msg
 from .state import AppState
 
@@ -208,6 +207,20 @@ class FridaController:
         if not res.ok:
             await self._emit("frida_connect", False, f"adb forward failed: {res.text}")
             return
+
+        # 5b) Reverse-tunnel the SOCKS5 proxy back to the device. The injected
+        #     native-connect-hook redirects the app's raw sockets to
+        #     127.0.0.1:SOCKS_PORT *on the device*, and adb reverse tunnels that
+        #     to the host's mitmproxy SOCKS5 listener. This is what makes the app
+        #     reach our proxy at all: routing to the host's LAN IP needs both a
+        #     device→host network route AND an inbound firewall rule on the SOCKS
+        #     port (the UI only opens the HTTP port), and either gap left the app
+        #     with "no internet". The loopback tunnel needs neither.
+        await self.adb.remove_reverse(config.SOCKS_PORT)
+        rev = await self.adb.reverse(config.SOCKS_PORT, config.SOCKS_PORT)
+        if not rev.ok:
+            await self._emit("frida_connect", False, f"adb reverse failed: {rev.text}")
+            return
         try:
             self._device = await asyncio.to_thread(
                 lambda: frida.get_device_manager().add_remote_device(
@@ -266,28 +279,59 @@ class FridaController:
 
     def _build_script(self) -> Optional[str]:
         """Build the injected script: a generated config prologue, then the
-        bundled scripts in order — native connect hook (raw-socket → SOCKS5
-        redirect), SSL unpinning, root-detection bypass. Returns None if the CA
-        is missing. Each bundled script is self-contained (own IIFE / Java.perform),
-        so concatenation is safe.
+        bundled scripts in order. Returns None if the CA is missing.
+
+        Injection order (each block self-contained — own IIFE / Java.perform):
+          0. frida-java-bridge.js  — vendored bundle that re-defines the global
+                                      `Java` (Frida 17 removed it). MUST be first:
+                                      without it the Java-layer scripts below throw
+                                      "'Java' is not defined", CA trust never
+                                      installs, and HTTPS fails ("no internet").
+          1. config-helpers.js     — HTTP Toolkit utilities (CERT_DER, waitForModule)
+                                      that native-tls-hook.js depends on.
+          2. native-connect-hook.js — redirect every raw socket to the SOCKS5
+                                      listener (so all traffic reaches mitmproxy).
+          3. native-tls-hook.js    — trust our CA at the NATIVE TLS layer
+                                      (conscrypt libssl.so, Cronet) — covers
+                                      Flutter/GMS/connectivity-check traffic that
+                                      the Java-only hook can't reach.
+          4. android-unpinning.js  — trust our CA + neuter pinning at the JAVA
+                                      layer (SSLContext, OkHttp).
+          5. android-root-bypass.js — hide root from the app.
 
         Two config shapes are emitted in the prologue:
-          * NOX_CONFIG.*           — read by our android-unpinning.js (CA trust).
-          * top-level const globals — the contract HTTP Toolkit's vendored
-            native-connect-hook.js reads (PROXY_HOST/PORT, PROXY_SUPPORTS_SOCKS5,
-            IGNORED_NON_HTTP_PORTS, BLOCK_HTTP3, DEBUG_MODE). For the native hook
-            PROXY_PORT is the mitmproxy SOCKS5 listener (config.SOCKS_PORT), since
-            the hook rewrites every socket to PROXY_HOST:PROXY_PORT and speaks
-            SOCKS5 there to convey the original destination."""
+          * NOX_CONFIG.*           — read by our android-unpinning.js.
+          * top-level const globals (CERT_PEM, CERT_DER deps, PROXY_HOST/PORT,
+            PROXY_SUPPORTS_SOCKS5, IGNORED_NON_HTTP_PORTS, BLOCK_HTTP3,
+            DEBUG_MODE) — the contract the vendored HTTP Toolkit scripts read.
+            PROXY_PORT is the mitmproxy SOCKS5 listener (config.SOCKS_PORT)."""
         if not config.MITM_CA_PEM.exists():
             return None
-        ca_pem = config.MITM_CA_PEM.read_text(encoding="utf-8")
-        proxy_host = host_lan_ip()
+        # Strip trailing whitespace/newline: HTTP Toolkit's pemToDer() (in
+        # config-helpers.js) requires the LAST line to be exactly the END marker,
+        # so a trailing newline would make CERT_DER fail and break the whole script.
+        ca_pem = config.MITM_CA_PEM.read_text(encoding="utf-8").strip()
+        # The app reaches our proxy via the device's own loopback, which adb
+        # reverse (set up in _run_start_server) tunnels back to the host's SOCKS5
+        # listener. Using 127.0.0.1 instead of the host's LAN IP avoids needing a
+        # device→host route or an inbound firewall rule on the SOCKS port — both
+        # of which previously left intercepted apps with "no internet".
+        proxy_host = "127.0.0.1"
 
-        # Injected in order: native connect hook (raw sockets) first so it's in
-        # place before any socket opens, then SSL unpinning, then root bypass.
         parts = []
-        for name in ("native-connect-hook.js", "android-unpinning.js", "android-root-bypass.js"):
+        for name in (
+            # Frida 17 dropped the built-in global `Java` bridge; this vendored
+            # bundle restores it (as globalThis.Java) and MUST come first, before
+            # any script that calls Java.* — without it android-unpinning.js and
+            # android-root-bypass.js throw "'Java' is not defined", the app's CA
+            # is never trusted at the Java layer, and HTTPS fails ("no internet").
+            "frida-java-bridge.js",
+            "config-helpers.js",
+            "native-connect-hook.js",
+            "native-tls-hook.js",
+            "android-unpinning.js",
+            "android-root-bypass.js",
+        ):
             path = config.FRIDA_SCRIPTS_DIR / name
             if path.exists():
                 parts.append(f"// ===== {name} =====\n" + path.read_text(encoding="utf-8"))
@@ -304,9 +348,10 @@ class FridaController:
             f"  PROXY_PORT: {config.PROXY_PORT},\n"
             "  DEBUG: false,\n"
             "};\n"
-            "// HTTP Toolkit native-connect-hook.js config contract. PROXY_PORT is\n"
-            "// the SOCKS5 listener; the hook redirects raw sockets there + SOCKS5-\n"
-            "// handshakes the original destination so mitmproxy can MITM it.\n"
+            "// HTTP Toolkit config contract (config-helpers/native-connect/native-tls).\n"
+            "// CERT_PEM feeds CERT_DER (native TLS trust); PROXY_PORT is the SOCKS5\n"
+            "// listener the connect hook redirects raw sockets to.\n"
+            f"const CERT_PEM = {json.dumps(ca_pem)};\n"
             f"const PROXY_HOST = {json.dumps(proxy_host)};\n"
             f"const PROXY_PORT = {config.SOCKS_PORT};\n"
             "const PROXY_SUPPORTS_SOCKS5 = true;\n"
@@ -375,4 +420,5 @@ class FridaController:
         if self.adb.adb_path and self.adb.serial:
             await self.adb.kill_process("nox-frida-server")
             await self.adb.remove_forward(config.FRIDA_SERVER_PORT)
+            await self.adb.remove_reverse(config.SOCKS_PORT)
         self.state.frida.serverRunning = False

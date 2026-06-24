@@ -41,7 +41,9 @@ ws "frida_start"
            _wait_for_server (poll adb.pidof)
                                            timeout → emit frida_launch(False)
                                            → emit frida_launch(True)
-        6. adb.remove_forward + adb.forward(27042→27042)
+        6. adb.remove_forward + adb.forward(27042→27042)        (frida control port)
+           adb.remove_reverse + adb.reverse(SOCKS_PORT→SOCKS_PORT)  (proxy data path)
+                                           reverse fail → emit frida_connect(False)
            frida.get_device_manager().add_remote_device("127.0.0.1:27042")  [asyncio.to_thread]
                                            fail → emit frida_connect(False)
            state.frida.serverRunning = True
@@ -61,9 +63,13 @@ ws "frida_intercept" {package}
         _detach_session()                  (drop any prior script)
         _build_script()                                     [backend/frida_controller.py]
           MITM_CA_PEM exists?              no → emit frida_inject(False, "CA not found")
-          read CA PEM + host_lan_ip() + PROXY_PORT + SOCKS_PORT
+          read CA PEM; PROXY_HOST = 127.0.0.1 (device loopback, adb-reversed
+            to the host SOCKS listener — NOT the host LAN IP); PROXY_PORT=SOCKS_PORT
           → prologue (NOX_CONFIG + native-hook config globals)
-            + native-connect-hook.js + android-unpinning.js + android-root-bypass.js
+            + frida-java-bridge.js (FIRST — restores global `Java`, removed in
+              Frida 17; without it the Java-layer scripts throw and HTTPS dies)
+            + config-helpers.js + native-connect-hook.js + native-tls-hook.js
+            + android-unpinning.js + android-root-bypass.js
         device.spawn([package])            → pid            [asyncio.to_thread]
         device.attach(pid)                 → session
         session.create_script(source)      → script
@@ -75,8 +81,12 @@ ws "frida_intercept" {package}
                                            → emit frida_inject(True)
 ```
 On-device, the injected scripts run in the app: `native-connect-hook.js` hooks
-libc `connect()` and redirects every TCP socket to the mitmproxy SOCKS5 listener
-(`:51081`), SOCKS5-handshaking the original destination; `android-unpinning.js`
+libc `connect()` and redirects every TCP socket to `127.0.0.1:51081` on the
+device, SOCKS5-handshaking the original destination. `adb reverse` (set up in
+step 6) tunnels that loopback port to the host's mitmproxy SOCKS5 listener — so
+the app reaches the proxy without a device→host LAN route or an inbound firewall
+rule (the old host-LAN-IP target needed both, and missing either showed the app
+as "no internet"). `android-unpinning.js`
 swaps `SSLContext.init` to trust the CA and neuters pinning checks;
 `android-root-bypass.js` hides root (su paths, `Runtime.exec`, build tags, system
 props, root packages, RootBeer) so root-averse apps still run. The app's HTTPS —
@@ -93,7 +103,7 @@ ws "frida_stop" → FridaController.stop → _teardown
    _detach_session (script.unload + session.detach)
    self._device = None
    self._server_proc.kill()             (device-side frida-server child dies with it)
-   adb.kill_process("nox-frida-server"); adb.remove_forward(27042)
+   adb.kill_process("nox-frida-server"); adb.remove_forward(27042); adb.remove_reverse(SOCKS_PORT)
    state.frida.serverRunning = False
    → emit frida_stopped(True)
 ```

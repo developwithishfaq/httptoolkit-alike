@@ -24,6 +24,15 @@ proxy settings — Flutter, native/NDK networking, games — which the old JVM-p
 props approach missed. mitmproxy runs the SOCKS5 listener alongside the regular
 HTTP proxy in one instance (`engine.build_master`); flows surface identically.
 
+**Reaches the proxy via `adb reverse`, not the host LAN IP.** The hook redirects
+sockets to `127.0.0.1:SOCKS_PORT` *on the device*; `start_server` sets up
+`adb reverse tcp:SOCKS_PORT tcp:SOCKS_PORT` so that loopback port tunnels to the
+host's SOCKS5 listener. Targeting the host's LAN IP instead (the previous design)
+required both a device→host network route and an inbound Windows Firewall rule on
+`SOCKS_PORT` — the firewall hint only opens the HTTP port (`51080`), so on a USB
+device or a firewalled host every redirected socket was refused and the
+intercepted app showed **"no internet"**. The loopback tunnel needs neither.
+
 **Requires root** — `frida-server` runs as root. `start_server` hard-fails if
 `conn.connected` is false or `conn.rooted` isn't true. The UI card is disabled
 until the host can run Frida (frida package + bundled binary), a device is linked,
@@ -35,16 +44,16 @@ and it's rooted.
 |---|---|---|
 | `backend/frida_controller.py` | `FridaController` | Orchestrates the whole flow; holds live frida device/session/script handles |
 | `backend/frida_controller.py` | `FridaController._init_availability` | Decides `FridaState.available` (frida pkg importable **and** a server binary bundled) and records `reason` |
-| `backend/frida_controller.py` | `FridaController.start_server` → `_run_start_server` | rooted check → ABI → push → launch → `adb forward` → host attaches as remote device |
+| `backend/frida_controller.py` | `FridaController.start_server` → `_run_start_server` | rooted check → ABI → push → launch → `adb forward` (control) + `adb reverse` (SOCKS data path) → host attaches as remote device |
 | `backend/frida_controller.py` | `FridaController.intercept_app` → `_run_intercept` | spawn target gated → attach → load script → resume |
 | `backend/frida_controller.py` | `FridaController._build_script` | CA PEM + proxy/SOCKS config → JS prologue, prepended to the bundled scripts (native-connect-hook → unpinning → root-bypass, concatenated) |
-| `backend/frida_controller.py` | `FridaController._teardown` | detach, kill server, drop the forward (also runs on backend shutdown) |
+| `backend/frida_controller.py` | `FridaController._teardown` | detach, kill server, drop the forward + reverse (also runs on backend shutdown) |
 | `backend/frida_scripts/native-connect-hook.js` | (injected) | **Vendored verbatim from HTTP Toolkit (AGPL-3.0).** Hooks libc `connect()`, rewrites every TCP socket to the SOCKS5 listener + SOCKS5-handshakes the original destination. See `NOTICE.md` |
 | `backend/frida_scripts/android-unpinning.js` | (injected) | Trust CA via `SSLContext.init`, neuter pinning (TrustManagerImpl/okhttp). Routing is **not** here — the native hook owns it |
 | `backend/engine.py` | `build_master` | Runs the regular HTTP proxy **and** the `socks5@…:SOCKS_PORT` listener in one mitmproxy instance |
 | `backend/config.py` | `SOCKS_PORT` | mitmproxy SOCKS5 listener port (51081) the native hook targets |
 | `backend/frida_scripts/android-root-bypass.js` | (injected) | Hide root from the app: su-path probes, `Runtime.exec("su")`, `Build.TAGS`, `ro.debuggable`/`ro.secure`, root-app package lookups, RootBeer |
-| `backend/adb.py` | `forward` / `remove_forward` / `list_packages` / `spawn_shell` / `pidof` / `kill_process` | adb primitives the controller drives |
+| `backend/adb.py` | `forward` / `remove_forward` / `reverse` / `remove_reverse` / `list_packages` / `spawn_shell` / `pidof` / `kill_process` | adb primitives the controller drives |
 | `backend/state.py` | `FridaState` | `available`, `serverRunning`, `targetApp`, `targetPid`, `fridaVersion`, `reason` |
 | `backend/config.py` | `frida_server_binary` / `FRIDA_*` / `RESOURCE_ROOT` | binary lookup by ABI; resource locator that works in source **and** frozen bundles |
 | `backend/server.py` | `_handle_action` | actions `frida_start` / `frida_list_apps` / `frida_intercept` / `frida_stop`; sends initial `frida` state on WS connect |
@@ -97,6 +106,15 @@ device match.
   `socks5@…:SOCKS_PORT` listener (started in `build_master`). If `SOCKS_PORT`
   clashes with another service, change it in `config.py` (every reference derives
   from it) — the injected hook reads it via the generated `PROXY_PORT` global.
+- **Frida 17 removed the global `Java` bridge.** GumJS no longer defines `Java`
+  (or `ObjC`) for raw `create_script` sources, so `Java.perform(...)` throws
+  `'Java' is not defined`. That killed `android-unpinning.js` +
+  `android-root-bypass.js` — CA trust never installed at the Java layer and every
+  HTTPS connection failed, surfacing as **"no internet"** in the intercepted app
+  (the native hooks still ran, so it looked like routing worked). Fix:
+  `frida-java-bridge.js` (vendored from `frida-tools`) is prepended **first** in
+  `_build_script`, restoring `globalThis.Java`. Re-vendor on a frida major bump —
+  see `NOTICE.md`.
 - **HTTP/3 blocked.** The vendored hook sets `BLOCK_HTTP3 = true`, so UDP/443
   (QUIC) is dropped, forcing apps to fall back to interceptable TCP. Non-HTTP TCP
   on odd ports is still SOCKS-redirected; add ports to `IGNORED_NON_HTTP_PORTS`
@@ -105,16 +123,13 @@ device match.
   is too — see `backend/frida_scripts/NOTICE.md`.
 - **Spawn-gated injection.** Apps are `spawn`'d paused, hooked, then `resume`'d,
   so pinning hooks are in place before the app makes its first request.
-- **Coverage.** `android-unpinning.js` covers the common cases (TrustManagerImpl,
-  okhttp3/legacy okhttp, SSLContext, JVM proxy props). HTTP Toolkit's MIT
-  `frida-interception-and-unpinning` scripts can be dropped in for wider coverage.
+- **Coverage.** `android-unpinning.js` covers the common JVM cases
+  (TrustManagerImpl, okhttp3/legacy okhttp, SSLContext); `native-tls-hook.js`
+  covers the native TLS layer (conscrypt `libssl.so`, Cronet, BoringSSL). Both
+  require the global `Java` (JVM script) / native module hooks to load — see the
+  Frida-17 bridge trap above.
 
 ## Not yet mapped
 
-- **Native (non-JVM) TLS trust.** `native-connect-hook.js` routes raw sockets to
-  the proxy, but apps doing TLS in native code (Flutter, BoringSSL, custom NDK
-  stacks) still won't *trust* the proxy CA — `android-unpinning.js` only patches
-  the JVM trust path. BoringSSL `SSL_read`/`SSL_write` / cert-verify hooks are the
-  next step for full native coverage.
 - Attaching to an already-running process (only spawn-gated launch is wired).
 - UDP / SOCKS5-UDP capture (the native hook intercepts TCP only; QUIC is blocked).
