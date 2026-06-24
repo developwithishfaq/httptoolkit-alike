@@ -6,25 +6,24 @@ import { sendAction } from "../ws";
 // feature). Self-contained: renders the entry card, the live setup checklist,
 // an installed-app picker, and the intercepting/stop state, all from the store.
 //
-// Unlike the system-proxy Connect, this needs a rooted device (frida-server runs
-// as root) and a bundled frida-server binary for the device CPU. When either is
-// missing the card is disabled and explains why.
+// Standalone (like HTTP Toolkit's Frida interceptor): one click runs the full
+// Connect flow itself (adb → device → root → CA → proxy) and then the Frida
+// steps. The card is only disabled when the *host* can't run Frida at all (no
+// frida package or no bundled frida-server binary); the rooted-device
+// requirement is enforced by the flow and reported live in the checklist.
 export default function FridaCard() {
-  const conn = useStore((s) => s.conn);
   const frida = useStore((s) => s.frida);
   const fridaSteps = useStore((s) => s.fridaSteps);
   const fridaStatus = useStore((s) => s.fridaStatus);
   const fridaBusy = useStore((s) => s.fridaBusy);
   const startFrida = useStore((s) => s.startFrida);
 
-  // Gate reasons, most blocking first.
+  // Only the host capability blocks the card (no frida pkg / no bundled binary).
+  // Device connection + root are handled by the flow itself and reported live,
+  // so the card is a one-click standalone entry — no "connect first" required.
   const blocked = !frida.available
     ? frida.reason || "Frida is unavailable on this host."
-    : !conn.connected
-      ? "Run Connect first — Frida attaches to the already-connected device."
-      : conn.rooted !== true
-        ? "Frida needs a rooted device or emulator (frida-server runs as root)."
-        : null;
+    : null;
 
   const onStart = () => {
     if (fridaBusy) return;
@@ -98,8 +97,8 @@ export default function FridaCard() {
         Android app<br />via Frida
       </h3>
       <p className="mt-3 max-w-[18rem] text-[15px] leading-relaxed text-slate-600">
-        Intercept a single app even when it pins certificates — frida-server injects
-        SSL-unpinning hooks and routes its traffic to the proxy.
+        Intercept a single app even when it pins certificates — connects the device,
+        then frida-server injects SSL-unpinning hooks and routes its traffic to the proxy.
       </p>
 
       {blocked ? (
@@ -108,21 +107,31 @@ export default function FridaCard() {
         </p>
       ) : (
         <p className="mt-auto text-[13px] text-slate-500">
-          Requires root · frida {frida.fridaVersion ?? ""}
+          One click — connects &amp; roots the device, then injects · frida {frida.fridaVersion ?? ""}
         </p>
       )}
 
-      {/* live checklist while starting frida-server */}
+      {/* live checklist + status while connecting and starting frida-server */}
       {(fridaBusy || Object.keys(fridaSteps).length > 0) && !blocked && (
-        <div className="mt-4 flex flex-wrap items-center gap-1.5">
-          {FRIDA_STEPS.map((s) => {
-            const st = fridaSteps[s.key];
-            const running =
-              fridaBusy && !st && FRIDA_STEPS.find((x) => !(x.key in fridaSteps))?.key === s.key;
-            const state = st ? (st.ok ? "ok" : "error") : running ? "running" : "idle";
-            return <StepChip key={s.key} label={s.label} state={state} title={st?.message} />;
-          })}
-        </div>
+        <>
+          <div className="mt-4 flex flex-wrap items-center gap-1.5">
+            {FRIDA_STEPS.map((s) => {
+              const st = fridaSteps[s.key];
+              const running =
+                fridaBusy && !st && FRIDA_STEPS.find((x) => !(x.key in fridaSteps))?.key === s.key;
+              const state = st ? (st.ok ? "ok" : "error") : running ? "running" : "idle";
+              return <StepChip key={s.key} label={s.label} state={state} title={st?.message} />;
+            })}
+          </div>
+          {fridaStatus && (
+            <div
+              className={`mt-2 text-[13px] ${fridaStatus.ok ? "text-slate-500" : "text-amber-700"}`}
+              title={fridaStatus.message}
+            >
+              {fridaStatus.message}
+            </div>
+          )}
+        </>
       )}
 
       <FridaRobot className="pointer-events-none absolute -bottom-4 right-3 h-32 w-32 text-violet-100 transition group-hover:text-violet-200" />
