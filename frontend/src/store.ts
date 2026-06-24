@@ -12,18 +12,24 @@ export interface ResendSeed {
 
 const MAX_FLOWS = 5000;
 
-// Ordered Connect steps for the checklist UI (SPEC §7.5).
+// Feature 1 — "Connect device (ADB)" link steps (no cert/proxy here).
 export const CONNECT_STEPS: { key: string; label: string }[] = [
   { key: "adb_found", label: "adb" },
-  { key: "proxy_running", label: "proxy" },
   { key: "device_connected", label: "device" },
   { key: "rooted", label: "root" },
   { key: "android_checked", label: "android" },
-  { key: "cert_installed", label: "cert" },
-  { key: "proxy_set", label: "set proxy" },
-  { key: "connected", label: "connected" },
+  { key: "connected", label: "linked" },
 ];
 const STEP_KEYS = new Set(CONNECT_STEPS.map((s) => s.key));
+
+// Feature 2 — "Intercept traffic" (device-wide capture) steps.
+export const INTERCEPT_STEPS: { key: string; label: string }[] = [
+  { key: "proxy_running", label: "proxy" },
+  { key: "cert_installed", label: "cert" },
+  { key: "proxy_set", label: "set proxy" },
+  { key: "capturing", label: "capturing" },
+];
+const INTERCEPT_STEP_KEYS = new Set(INTERCEPT_STEPS.map((s) => s.key));
 
 // Ordered Frida steps for the per-app interception checklist.
 export const FRIDA_STEPS: { key: string; label: string }[] = [
@@ -83,8 +89,10 @@ interface AppStore {
   wsConnected: boolean;
   conn: ConnState;
   lastStatus: { step: string; ok: boolean; message: string } | null;
-  steps: Record<string, StepState>;
+  steps: Record<string, StepState>;          // feature 1 (connect/link) checklist
   connecting: boolean;
+  interceptSteps: Record<string, StepState>; // feature 2 (intercept traffic) checklist
+  intercepting: boolean;
 
   // frida (per-app interception)
   frida: FridaState;
@@ -118,6 +126,7 @@ interface AppStore {
   setStatus: (s: { step: string; ok: boolean; message: string }) => void;
   setMainView: (v: "intercept" | "view") => void;
   startConnect: () => void;
+  startIntercept: () => void;
   applyFridaStep: (m: { step: string; ok: boolean; message: string; frida: FridaState }) => void;
   setFridaApps: (apps: string[]) => void;
   startFrida: () => void;
@@ -145,6 +154,7 @@ export const useStore = create<AppStore>((set) => ({
   wsConnected: false,
   conn: {
     connected: false,
+    capturing: false,
     proxyRunning: false,
     certInstalled: false,
     deviceSerial: null,
@@ -156,6 +166,8 @@ export const useStore = create<AppStore>((set) => ({
   lastStatus: null,
   steps: {},
   connecting: false,
+  interceptSteps: {},
+  intercepting: false,
 
   frida: {
     available: false,
@@ -193,18 +205,26 @@ export const useStore = create<AppStore>((set) => ({
     set((state) => {
       const next: Partial<AppStore> = { lastStatus: s };
       if (STEP_KEYS.has(s.step)) {
+        // Feature 1 — device link checklist.
         next.steps = { ...state.steps, [s.step]: { ok: s.ok, message: s.message } };
-        // Terminal: success on the final step, or any checklist-step failure.
+        // Terminal: success on the final step ("connected"=linked), or any failure.
         if (s.step === "connected" ? s.ok : !s.ok) next.connecting = false;
-        // On a fully successful *standalone* connect, jump to the traffic view.
-        // But when this connect is the front half of a Frida start (fridaBusy),
-        // stay on Intercept so the user can pick an app to intercept.
-        if (s.step === "connected" && s.ok && !state.fridaBusy) next.mainView = "view";
+      } else if (INTERCEPT_STEP_KEYS.has(s.step)) {
+        // Feature 2 — device-wide capture checklist.
+        next.interceptSteps = { ...state.interceptSteps, [s.step]: { ok: s.ok, message: s.message } };
+        if (s.step === "capturing" ? s.ok : !s.ok) next.intercepting = false;
+        // Only once traffic is actually flowing do we jump to the traffic view.
+        if (s.step === "capturing" && s.ok) next.mainView = "view";
+      } else if (!s.ok) {
+        // A non-step failure (e.g. "capture"/"connect" guard) clears both spinners.
+        next.connecting = false;
+        next.intercepting = false;
       }
       return next;
     }),
   setMainView: (v) => set({ mainView: v }),
   startConnect: () => set({ connecting: true, steps: {}, lastStatus: null }),
+  startIntercept: () => set({ intercepting: true, interceptSteps: {}, lastStatus: null }),
 
   applyFridaStep: (m) =>
     set((state) => {

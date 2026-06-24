@@ -29,9 +29,9 @@ server→client message has a `type`, every client→server message has an `acti
 
 - Server→client `type`: `flow`, `status`, `frida`, `frida_apps`, `rules`, `prereqs`,
   `error`, `cleared`.
-- Client→server `action`: `connect`, `disconnect`, `reboot_device`, `clear`, `set_rules`,
-  `forward`, `drop`, `resend`, `check_prereqs`, `frida_start`, `frida_list_apps`,
-  `frida_intercept`, `frida_stop`.
+- Client→server `action`: `connect`, `intercept_traffic`, `stop_intercept`, `disconnect`,
+  `reboot_device`, `clear`, `set_rules`, `forward`, `drop`, `resend`, `check_prereqs`,
+  `frida_start`, `frida_list_apps`, `frida_intercept`, `frida_stop`.
 - Flow flags layered on by the engine/server: `dropped`, `mocked`, `reqMocked`, `error`,
   `replay`, `replayToken`.
 

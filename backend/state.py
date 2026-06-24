@@ -114,7 +114,13 @@ class Rules:
 
 @dataclass
 class ConnectionState:
+    # `connected` is the ADB device *link* only (device online + root detected).
+    # It is the prerequisite that gates the other two features (capture + Frida).
     connected: bool = False
+    # `capturing` is the device-wide "Intercept traffic" feature: CA installed +
+    # device http_proxy pointed at mitmproxy. Separate from `connected` so the UI
+    # can enable/disable it independently once a device is linked.
+    capturing: bool = False
     proxyRunning: bool = False
     certInstalled: bool = False
     deviceSerial: Optional[str] = None

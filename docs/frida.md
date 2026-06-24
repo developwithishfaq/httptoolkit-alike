@@ -9,15 +9,16 @@ root-detection checks** (many apps refuse to run on a rooted device). Captured
 traffic still flows through the same mitmproxy on `:51080` into the normal flow
 list.
 
-**Standalone** — like HTTP Toolkit's Frida interceptor, the entry point does the
-Connect work itself: if the device isn't connected, `start_server` runs the full
-[Connect flow](flows/connect.md) (adb → device → root → CA → proxy) first, then
-the Frida steps. No separate "Connect" click required.
+**Per-app & independent of device-wide capture** — this is feature 3 of the
+Intercept screen. It needs the device *link* (feature 1, `conn.connected`) but
+**not** "Intercept traffic" (feature 2): Frida routes the chosen app's traffic to
+the proxy itself (in-process proxy redirection), so only that one app is captured,
+with or without a device-wide proxy.
 
-**Requires root** — `frida-server` runs as root. Connect tolerates a non-rooted
-device via user-cert mode, but Frida cannot: after the connect phase the flow
-hard-fails if `conn.rooted` isn't true. The card itself is only disabled when the
-**host** can't run Frida at all (no frida package or no bundled binary).
+**Requires root** — `frida-server` runs as root. `start_server` hard-fails if
+`conn.connected` is false or `conn.rooted` isn't true. The UI card is disabled
+until the host can run Frida (frida package + bundled binary), a device is linked,
+and it's rooted.
 
 ## file → symbol
 
@@ -73,10 +74,12 @@ device match.
   wrapped in `asyncio.to_thread` so the event loop keeps serving flows.
 - **off-loop callbacks.** Script `on('message')` runs on a frida thread;
   `_emit_threadsafe` marshals UI emits back via `run_coroutine_threadsafe`.
-- **Shared adb.** `FridaController` reuses `ConnectController.adb`. The standalone
-  flow drives `self.connect.connect()` to locate adb + acquire a serial, so no
-  prior Connect click is needed; if a Connect is already running its lock makes
-  the nested call a no-op and Frida reports it couldn't connect (retry).
+- **Shared adb.** `FridaController` reuses `ConnectController.adb`, so the device
+  link (feature 1) must be established first — hence the card gates on
+  `conn.connected`. Frida does not run Connect itself.
+- **Per-app routing.** Traffic reaches the proxy via in-process proxy props set by
+  the injected script (only the target app's process), not a device proxy. Apps
+  using raw sockets that ignore proxy settings aren't caught yet — see Not yet mapped.
 - **Spawn-gated injection.** Apps are `spawn`'d paused, hooked, then `resume`'d,
   so pinning hooks are in place before the app makes its first request.
 - **Coverage.** `android-unpinning.js` covers the common cases (TrustManagerImpl,
@@ -85,6 +88,10 @@ device match.
 
 ## Not yet mapped
 
-- Native (non-JVM) socket/TLS redirection (BoringSSL `connect()`/`SSL_read`
-  hooks) — not yet implemented; only JVM-level proxy props are set.
+- **Raw-socket per-app capture.** HTTP Toolkit's full coverage hooks libc
+  `connect()` to rewrite each socket's destination to the proxy and does a SOCKS5
+  handshake so the proxy learns the original target. That needs a mitmproxy SOCKS5
+  listener + a native connect hook — the planned next step. Today routing is via
+  in-process JVM proxy props (covers standard HTTP stacks, not raw sockets).
+- Native (non-JVM) TLS redirection (BoringSSL `SSL_read`/`SSL_write` hooks).
 - Attaching to an already-running process (only spawn-gated launch is wired).

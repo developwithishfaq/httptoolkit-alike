@@ -34,7 +34,8 @@ export interface Flow {
 }
 
 export interface ConnState {
-  connected: boolean;
+  connected: boolean; // ADB device link established (gates the other features)
+  capturing: boolean; // device-wide "Intercept traffic" active (CA + proxy set)
   proxyRunning: boolean;
   certInstalled: boolean;
   deviceSerial: string | null;
@@ -148,6 +149,8 @@ export type ServerMsg =
 
 export type ClientAction =
   | { action: "connect" }
+  | { action: "intercept_traffic" }
+  | { action: "stop_intercept" }
   | { action: "disconnect" }
   | { action: "reboot_device" }
   | { action: "clear" }

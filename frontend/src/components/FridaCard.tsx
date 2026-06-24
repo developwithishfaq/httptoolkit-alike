@@ -6,24 +6,28 @@ import { sendAction } from "../ws";
 // feature). Self-contained: renders the entry card, the live setup checklist,
 // an installed-app picker, and the intercepting/stop state, all from the store.
 //
-// Standalone (like HTTP Toolkit's Frida interceptor): one click runs the full
-// Connect flow itself (adb → device → root → CA → proxy) and then the Frida
-// steps. The card is only disabled when the *host* can't run Frida at all (no
-// frida package or no bundled frida-server binary); the rooted-device
-// requirement is enforced by the flow and reported live in the checklist.
+// Feature 3 of the Intercept screen: a standalone *per-app* interceptor that
+// runs frida-server, injects SSL-unpinning + root-bypass hooks, and routes only
+// the chosen app's traffic to the proxy (no device-wide proxy). It needs the
+// device link (feature 1) first, so the card is disabled until the host can run
+// Frida (frida package + bundled binary), a device is connected, and it's rooted.
 export default function FridaCard() {
+  const conn = useStore((s) => s.conn);
   const frida = useStore((s) => s.frida);
   const fridaSteps = useStore((s) => s.fridaSteps);
   const fridaStatus = useStore((s) => s.fridaStatus);
   const fridaBusy = useStore((s) => s.fridaBusy);
   const startFrida = useStore((s) => s.startFrida);
 
-  // Only the host capability blocks the card (no frida pkg / no bundled binary).
-  // Device connection + root are handled by the flow itself and reported live,
-  // so the card is a one-click standalone entry — no "connect first" required.
+  // Block, most-blocking first: host can't run Frida → no device linked → not
+  // rooted (Frida's frida-server needs root). All gate before the user can start.
   const blocked = !frida.available
     ? frida.reason || "Frida is unavailable on this host."
-    : null;
+    : !conn.connected
+      ? "Connect a device first to intercept one of its apps."
+      : conn.rooted !== true
+        ? "Frida needs a rooted device or emulator (frida-server runs as root)."
+        : null;
 
   const onStart = () => {
     if (fridaBusy) return;
@@ -97,9 +101,9 @@ export default function FridaCard() {
         Android app<br />via Frida
       </h3>
       <p className="mt-3 max-w-[18rem] text-[15px] leading-relaxed text-slate-600">
-        Intercept a single app even when it pins certificates — connects the device,
-        then frida-server injects SSL-unpinning + root-detection-bypass hooks and routes
-        its traffic to the proxy.
+        Intercept a single app — even when it pins certificates — by injecting
+        SSL-unpinning + root-detection-bypass hooks and routing just that app's traffic
+        to the proxy. No device-wide proxy needed.
       </p>
 
       {blocked ? (
@@ -108,7 +112,7 @@ export default function FridaCard() {
         </p>
       ) : (
         <p className="mt-auto text-[13px] text-slate-500">
-          One click — connects &amp; roots the device, then injects · frida {frida.fridaVersion ?? ""}
+          Per-app · requires root · frida {frida.fridaVersion ?? ""}
         </p>
       )}
 

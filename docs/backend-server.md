@@ -19,9 +19,12 @@ prod) the static frontend. Owns the client→server action dispatch.
 - `Server._ws_handler` — accepts a WS, sends **initial sync** (status, recent 500 flows,
   rules, prereqs, **frida** state), then loops on incoming TEXT → `_handle_action`.
 - `Server._handle_action` — the dispatch table. Actions: `clear`, `set_rules`,
-  `connect`, `disconnect`, `reboot_device`, `forward`, `drop`, `resend`, `check_prereqs`,
-  and the Frida set `frida_start`, `frida_list_apps`, `frida_intercept` (`{package}`),
+  `connect` (device link), `intercept_traffic` (device-wide capture), `stop_intercept`,
+  `disconnect`, `reboot_device`, `forward`, `drop`, `resend`, `check_prereqs`, and the
+  Frida set `frida_start`, `frida_list_apps`, `frida_intercept` (`{package}`),
   `frida_stop` → `FridaController` (see [frida.md](frida.md), [flows/frida.md](flows/frida.md)).
+  The Intercept-screen features map 1:1 to these: Connect=`connect`, Intercept
+  traffic=`intercept_traffic`/`stop_intercept`, Frida=`frida_*`.
 - `Server._forward` / `_drop` — pop the paused flow from `state.pending`, call
   `intercept_mod.forward/drop`, re-serialize, upsert, broadcast.
 - `Server._resend` — validates spec has a url, calls `resend_mod.resend`; surfaces

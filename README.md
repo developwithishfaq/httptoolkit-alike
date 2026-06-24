@@ -20,11 +20,16 @@ Target platform: **Windows 11**. See [SPEC.md](SPEC.md) for the full design.
   query params, header tables, and bodies with JSON pretty-print + raw toggle.
   Binary/oversized bodies are shown as "binary, N bytes", never dumped.
 - **Copy as cURL**, free-text + method + status-class filtering, and Clear.
-- **Android app via Frida** — intercept a single app even when it pins
-  certificates: `frida-server` is pushed to the device and SSL-unpinning **and
-  root-detection-bypass** scripts are injected into the chosen app, routing its
-  traffic to the proxy. Requires a **rooted** device.
-  See [Frida interception](#android-app-via-frida-pinning-bypass) below.
+- **Three interception features** on the Intercept screen, with the device link
+  gating the other two:
+  1. **Connect device (ADB)** — link any device/emulator over ADB and detect root.
+  2. **Intercept traffic** — device-wide capture: install the HTTPS CA (system
+     store on rooted devices, else a user cert) and point the device proxy at
+     mitmproxy.
+  3. **Android app via Frida** — per-app: intercept a single app even when it pins
+     certificates, by injecting SSL-unpinning **and root-detection-bypass** scripts
+     and routing just that app's traffic to the proxy (no device-wide proxy).
+     Requires a **rooted** device. See [Frida interception](#android-app-via-frida-pinning-bypass).
 - Backend already binds the proxy on `0.0.0.0:51080` and generates the mitmproxy
   CA on first run, so M1 (manual cert + proxy) works end-to-end.
 

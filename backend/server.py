@@ -178,6 +178,12 @@ class Server:
         elif action == "connect":
             self._spawn(self.connect.connect())
 
+        elif action == "intercept_traffic":
+            self._spawn(self.connect.intercept_traffic())
+
+        elif action == "stop_intercept":
+            self._spawn(self.connect.stop_intercept())
+
         elif action == "disconnect":
             self._spawn(self.connect.disconnect())
 

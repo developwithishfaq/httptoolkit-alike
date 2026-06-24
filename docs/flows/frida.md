@@ -1,10 +1,10 @@
 # Flow: Frida per-app interception
 
 End-to-end ordered call chain for intercepting a single app via Frida. Subsystem
-reference: [docs/frida.md](../frida.md). **Standalone**: the start step runs the
-[Connect flow](connect.md) itself when the device isn't connected (Frida reuses
-that `AdbOrchestrator`), so no separate Connect click is required. The device
-must be **rooted** — enforced after the connect phase.
+reference: [docs/frida.md](../frida.md). **Per-app, independent of device-wide
+capture**: needs the device *link* (`conn.connected`, feature 1) but not
+"Intercept traffic" (feature 2) — Frida routes the chosen app's traffic itself.
+The device must be **rooted** (frida-server runs as root).
 
 ## Availability (startup, before any user action)
 
@@ -26,9 +26,7 @@ so the UI knows whether to enable the card.
 ws "frida_start"
   → Server._handle_action → _spawn(FridaController.start_server())
       → _run_start_server                                   [backend/frida_controller.py]
-        0. conn.connected?                 no → emit frida_connecting; await connect.connect()
-                                                 (full adb→device→root→CA→proxy flow)
-           still not connected?            → emit frida_device(False, "could not connect")
+        0. adb located + serial + conn.connected?  no → emit frida_device(False, "connect first")
         1. state.conn.rooted true?         no → emit frida_device(False, "needs root")
                                            → emit frida_device(True)
         3. adb.cpu_abi()                   → config.frida_server_binary(abi)
@@ -102,7 +100,7 @@ finally block so no frida-server is left running on the device.
 | Step | Branch | Result |
 |---|---|---|
 | availability | frida pkg missing / no binary | card disabled, `reason` shown |
-| start ⓪      | connect fails / device offline | `frida_device(False)`, "could not connect" |
+| start ⓪      | no device link (`conn.connected` false) | `frida_device(False)`, "connect first" |
 | start ①      | device not rooted | `frida_device(False)`, flow stops |
 | start ③      | no binary for ABI | `frida_abi(False)`, "run fetch-frida-server.py" |
 | start ⑤      | frida-server won't start (root denied) | `frida_launch(False)` |

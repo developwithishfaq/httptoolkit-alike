@@ -17,9 +17,12 @@ All runtime state in one process so the addon, WS handler, and rule list share m
 - `Rules` — ordered rule list, persisted to `RULES_PATH` (JSON) on every `set`.
   - `list` (property), `set(rules)` (saves), `match(flow, direction)` →
     `rules_mod.first_match`, `load`/`save` (best-effort; never crash the loop).
-- `ConnectionState` (dataclass) — `connected, proxyRunning, certInstalled, deviceSerial,
-  androidSdk, hostProxy, rooted, certMode`. `to_dict()` for the wire. **Mirrors
-  `ConnState` in [types.ts](../frontend/src/types.ts).**
+- `ConnectionState` (dataclass) — `connected, capturing, proxyRunning, certInstalled,
+  deviceSerial, androidSdk, hostProxy, rooted, certMode`. `to_dict()` for the wire.
+  **Mirrors `ConnState` in [types.ts](../frontend/src/types.ts).** `connected` is the ADB
+  *link* (gates capture + Frida); `capturing` is the device-wide "Intercept traffic"
+  feature (CA + device proxy). The two are set by separate `ConnectController` methods
+  (`connect` vs `intercept_traffic`) — see [flows/connect.md](flows/connect.md).
 - `FridaState` (dataclass) — `available, serverRunning, targetApp, targetPid,
   fridaVersion, reason`. `to_dict()` for the wire. Tracks the per-app Frida path,
   **separate** from `ConnectionState`. **Mirrors `FridaState` in

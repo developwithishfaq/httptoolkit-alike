@@ -63,7 +63,7 @@ Base path for all relative file references below: the **repo root**
 | WS hub, REST, static serving, action dispatch | `backend/server.py` → `Server._handle_action` | [docs/backend-server.md](docs/backend-server.md) |
 | Wire message shapes / flow serialization | `backend/protocol.py` → `serialize_flow` + `frontend/src/types.ts` | [docs/protocol.md](docs/protocol.md) |
 | In-memory state (flows, pending, rules, conn) | `backend/state.py` → `FlowStore`/`PendingFlows`/`Rules`/`ConnectionState` | [docs/backend-state.md](docs/backend-state.md) |
-| Connect / one-click device setup | `backend/connect.py` → `ConnectController._run_connect` | [docs/flows/connect.md](docs/flows/connect.md) |
+| Connect device (link) / Intercept traffic (device-wide capture) | `backend/connect.py` → `ConnectController._run_connect` / `_run_intercept_traffic` | [docs/flows/connect.md](docs/flows/connect.md) |
 | Frida per-app interception / SSL unpinning | `backend/frida_controller.py` → `FridaController` + `backend/frida_scripts/android-unpinning.js` | [docs/frida.md](docs/frida.md), [docs/flows/frida.md](docs/flows/frida.md) |
 | Provisioning frida-server binaries | `scripts/fetch-frida-server.py` → `main` | [docs/frida.md](docs/frida.md) (Binaries & bundling) |
 | adb control (locate/connect/root/push/proxy) | `backend/adb.py` → `AdbOrchestrator` | [docs/adb.md](docs/adb.md) |

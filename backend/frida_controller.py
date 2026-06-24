@@ -139,24 +139,17 @@ class FridaController:
             await self._emit("frida_available", False, fs.reason or "frida unavailable")
             return
 
-        # 0) Make Frida standalone: run the full Connect flow ourselves if the
-        #    device isn't connected yet (matches HTTP Toolkit, where the Frida
-        #    interceptor doesn't require a separate "connect" first). Connect
-        #    handles adb → device → root → CA → proxy and emits its own `status`
-        #    steps; we then layer the Frida-specific steps on top.
-        if not self.state.conn.connected:
-            await self._emit("frida_connecting", True, "Connecting to device…")
-            await self.connect.connect()
+        # 0) Require the device link (feature 1). Frida is a standalone per-app
+        #    feature but still needs a connected device; the UI gates the card on
+        #    conn.connected so this is mostly a guard.
         if not (self.adb.adb_path and self.adb.serial and self.state.conn.connected):
             await self._emit(
                 "frida_device", False,
-                "Could not connect to a device. Make sure it's online "
-                "(USB debugging enabled, or the emulator is running).",
+                "Connect a device first (Connect device / ADB).",
             )
             return
 
-        # 1) Frida needs root specifically (frida-server runs as root); Connect
-        #    tolerates non-rooted via user-cert mode, but Frida can't.
+        # 1) Frida needs root specifically (frida-server runs as root).
         if not self.state.conn.rooted:
             await self._emit(
                 "frida_device", False,
