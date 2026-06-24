@@ -21,9 +21,10 @@ Target platform: **Windows 11**. See [SPEC.md](SPEC.md) for the full design.
   Binary/oversized bodies are shown as "binary, N bytes", never dumped.
 - **Copy as cURL**, free-text + method + status-class filtering, and Clear.
 - **Android app via Frida** — intercept a single app even when it pins
-  certificates: `frida-server` is pushed to the device and an SSL-unpinning
-  script is injected into the chosen app, routing its traffic to the proxy.
-  Requires a **rooted** device. See [Frida interception](#android-app-via-frida-pinning-bypass) below.
+  certificates: `frida-server` is pushed to the device and SSL-unpinning **and
+  root-detection-bypass** scripts are injected into the chosen app, routing its
+  traffic to the proxy. Requires a **rooted** device.
+  See [Frida interception](#android-app-via-frida-pinning-bypass) below.
 - Backend already binds the proxy on `0.0.0.0:51080` and generates the mitmproxy
   CA on first run, so M1 (manual cert + proxy) works end-to-end.
 
@@ -174,9 +175,12 @@ connected device.
 
 The standard Connect flow sets a device-wide proxy and installs a CA — but apps
 that **pin** their certificate still won't decrypt. The Frida path bypasses that
-for one target app: it runs `frida-server` on the device and injects a script
-that trusts the proxy CA, routes the app's sockets to the proxy, and disables
-certificate pinning. Decrypted traffic then appears in the normal flow list.
+for one target app: it runs `frida-server` on the device and injects scripts that
+trust the proxy CA, route the app's sockets to the proxy, disable certificate
+pinning, and **bypass common root-detection checks** (su-path probes,
+`Runtime.exec("su")`, build tags, `ro.debuggable`/`ro.secure`, root-app package
+lookups, RootBeer) so apps that refuse to run on a rooted device still work.
+Decrypted traffic then appears in the normal flow list.
 
 **Requirements:** a **rooted** device/emulator (frida-server runs as root) and a
 `frida-server` binary matching the device CPU. The binaries are large and

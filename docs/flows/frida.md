@@ -62,7 +62,7 @@ ws "frida_intercept" {package}
         _build_script()                                     [backend/frida_controller.py]
           MITM_CA_PEM exists?              no → emit frida_inject(False, "CA not found")
           read CA PEM + host_lan_ip()+PROXY_PORT
-          → JSON prologue NOX_CONFIG + android-unpinning.js
+          → JSON prologue NOX_CONFIG + android-unpinning.js + android-root-bypass.js
         device.spawn([package])            → pid            [asyncio.to_thread]
         device.attach(pid)                 → session
         session.create_script(source)      → script
@@ -73,10 +73,12 @@ ws "frida_intercept" {package}
         state.frida.targetApp/targetPid set
                                            → emit frida_inject(True)
 ```
-On-device, `android-unpinning.js` runs in the app: `SSLContext.init` swapped to
-trust the CA, pinning checks neutered, JVM proxy props set to the proxy. The
-app's HTTPS now decrypts through mitmproxy `:51080` and rows appear in the flow
-list via the normal [capture flow](capture.md).
+On-device, both injected scripts run in the app: `android-unpinning.js` swaps
+`SSLContext.init` to trust the CA, neuters pinning checks, and sets JVM proxy
+props; `android-root-bypass.js` hides root (su paths, `Runtime.exec`, build tags,
+system props, root packages, RootBeer) so root-averse apps still run. The app's
+HTTPS now decrypts through mitmproxy `:51080` and rows appear in the flow list
+via the normal [capture flow](capture.md).
 
 UI: `beginFridaInject` marks only `frida_inject` pending; on success the card
 shows the **Intercepting** state with a Stop button.

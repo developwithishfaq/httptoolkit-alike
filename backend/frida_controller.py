@@ -2,10 +2,11 @@
 
 The power-user counterpart to the system-proxy Connect flow. Where Connect sets
 a device-wide proxy + installs a CA (and is defeated by certificate pinning),
-this path runs frida-server on the device and injects a script into ONE target
-app that (a) trusts our CA, (b) routes the app's sockets through our proxy, and
-(c) disables certificate pinning. Captured traffic still flows through the same
-mitmproxy on :51080 into the normal flow list.
+this path runs frida-server on the device and injects scripts into ONE target
+app that (a) trust our CA, (b) route the app's sockets through our proxy,
+(c) disable certificate pinning, and (d) bypass common root-detection checks
+(many apps refuse to run on a rooted device). Captured traffic still flows
+through the same mitmproxy on :51080 into the normal flow list.
 
 Requires root (frida-server runs as root). The host `frida` package and a
 device-matched frida-server binary must both be present, else the feature
@@ -253,24 +254,32 @@ class FridaController:
         fs.reason = None
         await self._emit(
             "frida_inject", True,
-            f"Intercepting {package} (pid {pid}) — pinning bypassed, traffic routed to proxy.",
+            f"Intercepting {package} (pid {pid}) — pinning + root detection bypassed, "
+            "traffic routed to proxy.",
         )
 
     # --- script build ------------------------------------------------------
 
     def _build_script(self) -> Optional[str]:
-        """Concatenate a generated config header (CA PEM + proxy) with the
-        bundled unpinning script. Returns None if the CA is missing."""
+        """Build the injected script: a generated config header (CA PEM + proxy)
+        followed by the bundled unpinning script and the root-detection bypass.
+        Returns None if the CA is missing. Each bundled script is self-contained
+        (its own Java.perform), so concatenation is safe."""
         if not config.MITM_CA_PEM.exists():
             return None
         ca_pem = config.MITM_CA_PEM.read_text(encoding="utf-8")
         proxy_host = host_lan_ip()
         proxy_port = config.PROXY_PORT
 
-        main = (config.FRIDA_SCRIPTS_DIR / "android-unpinning.js").read_text(encoding="utf-8")
+        # Injected in order: SSL unpinning + proxy routing, then root bypass.
+        parts = []
+        for name in ("android-unpinning.js", "android-root-bypass.js"):
+            path = config.FRIDA_SCRIPTS_DIR / name
+            if path.exists():
+                parts.append(f"// ===== {name} =====\n" + path.read_text(encoding="utf-8"))
 
-        # JS prologue with the runtime config the script reads. JSON-encoding the
-        # PEM keeps newlines/quotes safe.
+        # JS prologue with the runtime config the unpinning script reads.
+        # JSON-encoding the PEM keeps newlines/quotes safe.
         import json
 
         header = (
@@ -281,7 +290,7 @@ class FridaController:
             "  DEBUG: false,\n"
             "};\n\n"
         )
-        return header + main
+        return header + "\n\n".join(parts)
 
     # --- frida callbacks ---------------------------------------------------
 

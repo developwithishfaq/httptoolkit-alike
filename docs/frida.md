@@ -3,9 +3,11 @@
 The power-user counterpart to the system-proxy [Connect flow](flows/connect.md).
 Where Connect sets a device-wide proxy and installs a CA (and is defeated by
 certificate pinning), the Frida path runs `frida-server` on the device and
-injects a script into **one** target app that trusts our CA, routes the app's
-sockets through the proxy, and disables certificate pinning. Captured traffic
-still flows through the same mitmproxy on `:51080` into the normal flow list.
+injects scripts into **one** target app that trust our CA, route the app's
+sockets through the proxy, disable certificate pinning, and **bypass common
+root-detection checks** (many apps refuse to run on a rooted device). Captured
+traffic still flows through the same mitmproxy on `:51080` into the normal flow
+list.
 
 **Standalone** — like HTTP Toolkit's Frida interceptor, the entry point does the
 Connect work itself: if the device isn't connected, `start_server` runs the full
@@ -25,9 +27,10 @@ hard-fails if `conn.rooted` isn't true. The card itself is only disabled when th
 | `backend/frida_controller.py` | `FridaController._init_availability` | Decides `FridaState.available` (frida pkg importable **and** a server binary bundled) and records `reason` |
 | `backend/frida_controller.py` | `FridaController.start_server` → `_run_start_server` | rooted check → ABI → push → launch → `adb forward` → host attaches as remote device |
 | `backend/frida_controller.py` | `FridaController.intercept_app` → `_run_intercept` | spawn target gated → attach → load script → resume |
-| `backend/frida_controller.py` | `FridaController._build_script` | CA PEM + proxy host:port → JS prologue, prepended to the bundled script |
+| `backend/frida_controller.py` | `FridaController._build_script` | CA PEM + proxy host:port → JS prologue, prepended to the bundled scripts (unpinning **+** root-bypass, concatenated) |
 | `backend/frida_controller.py` | `FridaController._teardown` | detach, kill server, drop the forward (also runs on backend shutdown) |
 | `backend/frida_scripts/android-unpinning.js` | (injected) | Trust CA via `SSLContext.init`, neuter pinning (TrustManagerImpl/okhttp), set JVM proxy props |
+| `backend/frida_scripts/android-root-bypass.js` | (injected) | Hide root from the app: su-path probes, `Runtime.exec("su")`, `Build.TAGS`, `ro.debuggable`/`ro.secure`, root-app package lookups, RootBeer |
 | `backend/adb.py` | `forward` / `remove_forward` / `list_packages` / `spawn_shell` / `pidof` / `kill_process` | adb primitives the controller drives |
 | `backend/state.py` | `FridaState` | `available`, `serverRunning`, `targetApp`, `targetPid`, `fridaVersion`, `reason` |
 | `backend/config.py` | `frida_server_binary` / `FRIDA_*` / `RESOURCE_ROOT` | binary lookup by ABI; resource locator that works in source **and** frozen bundles |

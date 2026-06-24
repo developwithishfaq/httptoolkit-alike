@@ -47,8 +47,8 @@ export default function FridaCard() {
           <Row label="frida" value={frida.fridaVersion ?? "—"} mono />
         </dl>
         <p className="mt-3 text-[13px] leading-relaxed text-slate-500">
-          Certificate pinning is bypassed and the app's traffic is routed to the proxy —
-          decrypted requests appear in the traffic list.
+          Certificate pinning and root detection are bypassed and the app's traffic is
+          routed to the proxy — decrypted requests appear in the traffic list.
         </p>
         <div className="mt-5">
           <button
@@ -98,7 +98,8 @@ export default function FridaCard() {
       </h3>
       <p className="mt-3 max-w-[18rem] text-[15px] leading-relaxed text-slate-600">
         Intercept a single app even when it pins certificates — connects the device,
-        then frida-server injects SSL-unpinning hooks and routes its traffic to the proxy.
+        then frida-server injects SSL-unpinning + root-detection-bypass hooks and routes
+        its traffic to the proxy.
       </p>
 
       {blocked ? (
