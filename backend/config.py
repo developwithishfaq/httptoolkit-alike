@@ -57,6 +57,13 @@ else:
 PROXY_HOST = "0.0.0.0"
 PROXY_PORT = 51080
 
+# SOCKS5 listener for the Frida raw-socket path. mitmproxy runs this *alongside*
+# the regular HTTP proxy (engine.build_master). The injected native-connect-hook
+# rewrites a target app's raw sockets to this port and speaks a SOCKS5 handshake
+# so mitmproxy learns each connection's original destination — see docs/frida.md.
+# Adjacent to PROXY_PORT, still in the IANA dynamic range; change here if it clashes.
+SOCKS_PORT = 51081
+
 # aiohttp web + WebSocket server. Localhost only — the UI runs on the host.
 # 8770 is deliberately an uncommon port (not a default like 8000/8080/3000), so
 # it's left as-is; collisions are unlikely. The Vite dev proxy targets must match.

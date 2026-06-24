@@ -241,3 +241,15 @@ This tool is for inspecting traffic from apps you run in **your own** emulator
 (your own apps, or apps you're authorized to test). Intercepting third-party
 services or bypassing pinning on apps you don't own may violate terms of service
 or law. You are responsible for how you use it.
+
+## Licensing
+
+The Frida raw-socket interception path bundles
+[`backend/frida_scripts/native-connect-hook.js`](backend/frida_scripts/native-connect-hook.js),
+which is vendored **verbatim** from HTTP Toolkit's
+[frida-interception-and-unpinning](https://github.com/httptoolkit/frida-interception-and-unpinning/)
+project and is licensed **AGPL-3.0-or-later**. Because it ships inside the app,
+**the distributed application is therefore AGPL-3.0-or-later** — if you convey
+the software (including over a network), recipients must be able to obtain the
+corresponding source. See [`backend/frida_scripts/NOTICE.md`](backend/frida_scripts/NOTICE.md)
+for details. Add the full `LICENSE` (AGPL-3.0) text before shipping binaries.

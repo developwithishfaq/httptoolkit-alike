@@ -13,7 +13,7 @@ from mitmproxy.options import Options
 from mitmproxy.tools.dump import DumpMaster
 
 from . import intercept as intercept_mod
-from .config import PROXY_HOST, PROXY_PORT, REPLAY_HEADER
+from .config import PROXY_HOST, PROXY_PORT, REPLAY_HEADER, SOCKS_PORT
 from .protocol import serialize_flow
 from .state import AppState
 
@@ -121,12 +121,24 @@ class Engine:
 
 
 async def build_master(state: AppState, broadcast: Broadcast) -> DumpMaster:
-    """Create a DumpMaster bound to PROXY_HOST:PROXY_PORT (0.0.0.0:51080) with our Engine addon.
+    """Create a DumpMaster running two listeners with our Engine addon:
 
-    The listener must bind 0.0.0.0 so the Nox emulator can reach it (SPEC §7.4).
-    Termlog/dumper are disabled — we have our own UI.
+      * ``regular``  HTTP(S) proxy on PROXY_HOST:PROXY_PORT (0.0.0.0:51080) — the
+        device-wide Connect/Capture path and JVM-proxied apps.
+      * ``socks5``   on PROXY_HOST:SOCKS_PORT (0.0.0.0:51081) — the Frida
+        raw-socket path: the injected native-connect-hook redirects an app's
+        sockets here and the SOCKS5 handshake carries the original destination,
+        so mitmproxy can MITM it (see docs/frida.md).
+
+    Both bind 0.0.0.0 so the device/emulator can reach them (SPEC §7.4). The
+    Engine addon's hooks are mode-agnostic — flows from either listener are
+    captured identically. Termlog/dumper are disabled — we have our own UI.
     """
-    opts = Options(listen_host=PROXY_HOST, listen_port=PROXY_PORT)
+    opts = Options()
+    opts.update(mode=[
+        f"regular@{PROXY_HOST}:{PROXY_PORT}",
+        f"socks5@{PROXY_HOST}:{SOCKS_PORT}",
+    ])
     master = DumpMaster(opts, with_termlog=False, with_dumper=False)
     master.addons.add(Engine(state, broadcast))
     return master

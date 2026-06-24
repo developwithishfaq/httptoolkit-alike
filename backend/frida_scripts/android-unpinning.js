@@ -3,18 +3,21 @@
  *
  * Injected into a single target app by FridaController. A generated prologue
  * defines NOX_CONFIG (CERT_PEM, PROXY_HOST, PROXY_PORT, DEBUG) ahead of this
- * file. Three jobs:
+ * file. Two jobs:
  *   1. Trust our CA   — add the mitmproxy CA to the app's trust evaluation so
  *                        the proxy's leaf certs validate.
- *   2. Route to proxy — set the JVM proxy properties so default HTTP clients
- *                        send through PROXY_HOST:PROXY_PORT.
- *   3. Unpin          — neuter the common certificate-pinning code paths so
+ *   2. Unpin          — neuter the common certificate-pinning code paths so
  *                        apps that pin don't reject the proxy cert.
  *
+ * Traffic *routing* is NOT done here — the bundled native-connect-hook.js
+ * redirects every socket (raw + JVM) to the mitmproxy SOCKS5 listener. The old
+ * JVM-proxy-props block was removed: leaving it would double-proxy JVM clients
+ * (the native hook would also redirect their connection to the HTTP proxy).
+ *
  * Every hook is wrapped so a missing class on a given app/OS is skipped rather
- * than aborting the whole script. Approach follows HTTP Toolkit's MIT-licensed
- * frida-interception-and-unpinning project; the upstream scripts can be dropped
- * in here verbatim for wider coverage.
+ * than aborting the whole script. Approach follows HTTP Toolkit's
+ * frida-interception-and-unpinning project (AGPL-3.0-or-later); the upstream
+ * scripts can be dropped in here verbatim for wider coverage.
  */
 
 "use strict";
@@ -140,18 +143,8 @@ Java.perform(function () {
       };
   });
 
-  // --- 4. Route default HTTP clients through our proxy -------------------
-  // Many apps respect the JVM proxy system properties; setting them here pushes
-  // their traffic to mitmproxy even when no device-wide proxy is set.
+  // Traffic routing is handled by native-connect-hook.js (raw-socket → SOCKS5),
+  // not by JVM proxy props — see the file header.
 
-  safe("proxy-props", function () {
-    const System = Java.use("java.lang.System");
-    System.setProperty("http.proxyHost", NOX_CONFIG.PROXY_HOST);
-    System.setProperty("http.proxyPort", "" + NOX_CONFIG.PROXY_PORT);
-    System.setProperty("https.proxyHost", NOX_CONFIG.PROXY_HOST);
-    System.setProperty("https.proxyPort", "" + NOX_CONFIG.PROXY_PORT);
-    log("JVM proxy → " + NOX_CONFIG.PROXY_HOST + ":" + NOX_CONFIG.PROXY_PORT);
-  });
-
-  log("interception hooks installed");
+  log("unpinning hooks installed");
 });
