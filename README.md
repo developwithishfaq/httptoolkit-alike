@@ -77,6 +77,23 @@ cd frontend && npm run build && cd ..
 python -m backend        # serves frontend/dist at http://127.0.0.1:8770
 ```
 
+### Desktop app (Electron)
+
+Run it as a **native desktop window** instead of in a browser — an Electron shell
+spawns the Python backend, waits for it, and loads the UI; closing the window tears
+the backend down. No app code changes; see [desktop/README.md](desktop/README.md).
+
+```powershell
+cd desktop
+npm install
+npm run build:frontend   # builds frontend/dist
+npm start                # opens the native window (backend on :8770/:8080)
+```
+
+For hot-reload development, run `npm --prefix frontend run dev` in one terminal and
+`npm run dev` (in `desktop/`) in another. Packaging into a standalone installer
+(PyInstaller + electron-builder) is documented as Phase 2 in the desktop README.
+
 ---
 
 ## Manual cert/proxy setup (fallback for Android 14+ images)

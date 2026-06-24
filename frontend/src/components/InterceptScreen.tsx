@@ -37,7 +37,7 @@ export default function InterceptScreen() {
 
         {adbMissing && (
           <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800">
-            adb not found — install Nox (nox_adb.exe) or add <code className="font-mono">adb</code> to PATH.
+            adb not found — add Android platform-tools (<code className="font-mono">adb</code>) to PATH, or install Nox.
             Open <span className="font-medium">Status</span> for details.
           </div>
         )}
@@ -90,10 +90,11 @@ function AndroidCard({ onConnect, connecting }: { onConnect: () => void; connect
         Android Device<br />via ADB
       </h3>
       <p className="mt-3 max-w-[18rem] text-[15px] leading-relaxed text-slate-600">
-        Intercept an Android device or emulator connected to ADB
+        Intercept any Android device or emulator connected to ADB — USB or network
       </p>
       <p className="mt-3 max-w-[18rem] text-[15px] leading-relaxed text-slate-600">
-        Automatically injects system HTTPS certificates into rooted devices &amp; most emulators
+        Installs the HTTPS CA into the system store on rooted devices &amp; emulators, or
+        sets up a user cert on retail phones
       </p>
 
       <AndroidRobot className="pointer-events-none absolute -bottom-5 right-3 h-40 w-40 text-emerald-200 transition group-hover:text-emerald-300" />
@@ -122,10 +123,44 @@ function ConnectedCard() {
 
       <dl className="mt-4 space-y-1.5 text-sm">
         <Row label="device" value={conn.deviceSerial ?? "—"} mono />
-        <Row label="android" value={conn.androidSdk != null ? `API ${conn.androidSdk}` : "—"} />
-        <Row label="cert" value={conn.certInstalled ? "installed" : "—"} valueClass={conn.certInstalled ? "text-emerald-600" : "text-slate-400"} />
+        <Row
+          label="android"
+          value={
+            conn.androidSdk != null
+              ? `API ${conn.androidSdk}${conn.rooted ? " · rooted" : conn.rooted === false ? " · not rooted" : ""}`
+              : "—"
+          }
+        />
+        <Row
+          label="cert"
+          value={
+            conn.certMode === "system"
+              ? "system store"
+              : conn.certMode === "user"
+                ? "user cert — action needed"
+                : "—"
+          }
+          valueClass={
+            conn.certMode === "system"
+              ? "text-emerald-600"
+              : conn.certMode === "user"
+                ? "text-amber-600"
+                : "text-slate-400"
+          }
+        />
         <Row label="proxy" value={conn.hostProxy ?? "—"} mono valueClass="text-accent" />
       </dl>
+
+      {conn.certMode === "user" && (
+        <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] leading-relaxed text-amber-800">
+          <div className="font-semibold">HTTPS needs one manual step</div>
+          HTTP traffic is captured now. To decrypt HTTPS, install the CA copied to the
+          device: <span className="font-medium">Settings → Security → Install a
+          certificate → CA certificate</span>, then pick{" "}
+          <code className="font-mono">nox-mitmproxy-ca.crt</code> from Downloads. Only
+          apps that trust user CAs (and browsers) will decrypt.
+        </div>
+      )}
 
       <div className="mt-5 flex gap-2">
         <button

@@ -40,6 +40,8 @@ export interface ConnState {
   deviceSerial: string | null;
   androidSdk: number | null;
   hostProxy: string | null;
+  rooted: boolean | null;
+  certMode: "system" | "user" | null;
 }
 
 export interface StatusMsg {

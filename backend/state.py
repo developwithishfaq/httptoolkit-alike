@@ -120,6 +120,11 @@ class ConnectionState:
     deviceSerial: Optional[str] = None
     androidSdk: Optional[int] = None
     hostProxy: Optional[str] = None
+    rooted: Optional[bool] = None
+    # How the CA was provisioned: "system" (rooted, full HTTPS), "user" (pushed
+    # for manual user-cert install — HTTPS only for apps that trust user CAs),
+    # or None (not attempted).
+    certMode: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

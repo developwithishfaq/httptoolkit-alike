@@ -95,6 +95,8 @@ export const useStore = create<AppStore>((set) => ({
     deviceSerial: null,
     androidSdk: null,
     hostProxy: null,
+    rooted: null,
+    certMode: null,
   },
   lastStatus: null,
   steps: {},

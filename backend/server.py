@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
@@ -23,7 +25,24 @@ from .netutil import host_lan_ip
 from .protocol import error_msg, prereqs_msg, rules_msg, serialize_flow, status_msg
 from .state import AppState
 
-FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+def _frontend_dist() -> Path:
+    """Locate the built frontend.
+
+    Resolution order so the same code works in source checkouts and in a
+    PyInstaller bundle (the desktop app, Phase 2):
+      1. NOX_FRONTEND_DIST env var (explicit override),
+      2. <bundle>/frontend/dist when frozen (added via --add-data),
+      3. repo-relative ../frontend/dist for `python -m backend` from source.
+    """
+    override = os.environ.get("NOX_FRONTEND_DIST")
+    if override:
+        return Path(override)
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / "frontend" / "dist"
+    return Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+
+FRONTEND_DIST = _frontend_dist()
 
 
 class Hub:

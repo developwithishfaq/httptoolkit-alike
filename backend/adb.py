@@ -128,26 +128,63 @@ class AdbOrchestrator:
 
     # --- discovery ---------------------------------------------------------
 
-    def locate(self) -> Optional[str]:
-        """Find adb. Priority: explicit override → Nox's bundled adb → PATH.
+    def _candidates(self) -> list[str]:
+        """All adb binaries we could use, in *preference* order.
 
-        Preferring Nox's adb means we share the adb server that Nox-based tools
-        (e.g. APK Tool GUI) already use, avoiding version-mismatch fights on
-        port 5037 that knock the device offline (SPEC §7.1, §13).
+        Modern platform-tools adb (on PATH, what Android Studio uses) comes
+        before Nox's bundled adb. Nox ships an ancient adb (~1.0.36); running it
+        kills a newer adb server on port 5037 ("server version doesn't match;
+        killing...") and can't talk to recent phones — so we only fall back to
+        it when no modern adb exists. ADB_OVERRIDE still wins (SPEC §7.1).
         """
+        cands: list[str] = []
         if ADB_OVERRIDE:
             p = Path(ADB_OVERRIDE)
             if p.exists():
-                self.adb_path = str(p)
-                return self.adb_path
-        for cand in _nox_adb_candidates():
-            if cand.exists():
-                self.adb_path = str(cand)
-                return self.adb_path
+                cands.append(str(p))
         on_path = shutil.which("adb")
         if on_path:
-            self.adb_path = on_path
+            cands.append(on_path)
+        for cand in _nox_adb_candidates():
+            if cand.exists():
+                cands.append(str(cand))
+        # De-dup, preserving order.
+        seen: set[str] = set()
+        out: list[str] = []
+        for c in cands:
+            if c not in seen:
+                seen.add(c)
+                out.append(c)
+        return out
+
+    def locate(self) -> Optional[str]:
+        """Find an adb path (preference order; modern adb first)."""
+        cands = self._candidates()
+        self.adb_path = cands[0] if cands else None
         return self.adb_path
+
+    async def autoselect(self) -> Optional[str]:
+        """Pick the adb that actually sees an online device.
+
+        Probes candidates in preference order and returns the first one that
+        lists an online device, so a real USB phone visible to platform-tools
+        adb is used directly — and we never invoke Nox's old adb (killing the
+        modern server) when the modern one already sees the device. If nothing
+        is online yet, returns the first candidate so connect() can still try
+        the TCP-connect path (modern adb talks to Nox's endpoints fine).
+        """
+        cands = self._candidates()
+        if not cands:
+            self.adb_path = None
+            return None
+        for cand in cands:
+            self.adb_path = cand
+            online, _ = await self._list_devices()
+            if online:
+                self.serial = online[0]
+                return cand
+        self.adb_path = cands[0]
+        return cands[0]
 
     # --- low-level runner --------------------------------------------------
 

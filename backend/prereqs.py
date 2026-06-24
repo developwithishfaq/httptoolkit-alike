@@ -25,7 +25,7 @@ def gather() -> dict[str, Any]:
     return {
         "adb": {
             "ok": bool(adb_path),
-            "detail": adb_path or "not found — install Nox (nox_adb.exe) or add adb to PATH",
+            "detail": adb_path or "not found — add Android platform-tools (adb) to PATH, or install Nox",
         },
         "mitmCA": {
             "ok": ca_ok,
