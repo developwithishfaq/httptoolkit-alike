@@ -254,34 +254,54 @@ class FridaController:
     # --- script build ------------------------------------------------------
 
     def _build_script(self) -> Optional[str]:
-        """Build the injected script: a generated config header (CA PEM + proxy)
-        followed by the bundled unpinning script and the root-detection bypass.
-        Returns None if the CA is missing. Each bundled script is self-contained
-        (its own Java.perform), so concatenation is safe."""
+        """Build the injected script: a generated config prologue, then the
+        bundled scripts in order — native connect hook (raw-socket → SOCKS5
+        redirect), SSL unpinning, root-detection bypass. Returns None if the CA
+        is missing. Each bundled script is self-contained (own IIFE / Java.perform),
+        so concatenation is safe.
+
+        Two config shapes are emitted in the prologue:
+          * NOX_CONFIG.*           — read by our android-unpinning.js (CA trust).
+          * top-level const globals — the contract HTTP Toolkit's vendored
+            native-connect-hook.js reads (PROXY_HOST/PORT, PROXY_SUPPORTS_SOCKS5,
+            IGNORED_NON_HTTP_PORTS, BLOCK_HTTP3, DEBUG_MODE). For the native hook
+            PROXY_PORT is the mitmproxy SOCKS5 listener (config.SOCKS_PORT), since
+            the hook rewrites every socket to PROXY_HOST:PROXY_PORT and speaks
+            SOCKS5 there to convey the original destination."""
         if not config.MITM_CA_PEM.exists():
             return None
         ca_pem = config.MITM_CA_PEM.read_text(encoding="utf-8")
         proxy_host = host_lan_ip()
-        proxy_port = config.PROXY_PORT
 
-        # Injected in order: SSL unpinning + proxy routing, then root bypass.
+        # Injected in order: native connect hook (raw sockets) first so it's in
+        # place before any socket opens, then SSL unpinning, then root bypass.
         parts = []
-        for name in ("android-unpinning.js", "android-root-bypass.js"):
+        for name in ("native-connect-hook.js", "android-unpinning.js", "android-root-bypass.js"):
             path = config.FRIDA_SCRIPTS_DIR / name
             if path.exists():
                 parts.append(f"// ===== {name} =====\n" + path.read_text(encoding="utf-8"))
 
-        # JS prologue with the runtime config the unpinning script reads.
+        # JS prologue with the runtime config the scripts read.
         # JSON-encoding the PEM keeps newlines/quotes safe.
         import json
 
         header = (
+            "// --- generated config (read by the bundled scripts) ---\n"
             "const NOX_CONFIG = {\n"
             f"  CERT_PEM: {json.dumps(ca_pem)},\n"
             f"  PROXY_HOST: {json.dumps(proxy_host)},\n"
-            f"  PROXY_PORT: {proxy_port},\n"
+            f"  PROXY_PORT: {config.PROXY_PORT},\n"
             "  DEBUG: false,\n"
-            "};\n\n"
+            "};\n"
+            "// HTTP Toolkit native-connect-hook.js config contract. PROXY_PORT is\n"
+            "// the SOCKS5 listener; the hook redirects raw sockets there + SOCKS5-\n"
+            "// handshakes the original destination so mitmproxy can MITM it.\n"
+            f"const PROXY_HOST = {json.dumps(proxy_host)};\n"
+            f"const PROXY_PORT = {config.SOCKS_PORT};\n"
+            "const PROXY_SUPPORTS_SOCKS5 = true;\n"
+            "const IGNORED_NON_HTTP_PORTS = [];\n"
+            "const BLOCK_HTTP3 = true;\n"
+            "const DEBUG_MODE = false;\n\n"
         )
         return header + "\n\n".join(parts)
 

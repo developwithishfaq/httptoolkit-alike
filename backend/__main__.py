@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 
-from .config import PROXY_HOST, PROXY_PORT, WEB_PORT
+from .config import PROXY_HOST, PROXY_PORT, SOCKS_PORT, WEB_PORT
 from .engine import build_master
 from .netutil import host_lan_ip, is_port_free
 from .server import Server
@@ -35,7 +35,7 @@ async def amain() -> None:
         print(f"[warn] web port {WEB_PORT} appears busy; another instance running?")
 
     await server.start()
-    print(f"[proxy] mitmproxy listening on {PROXY_HOST}:{PROXY_PORT} (0.0.0.0 reachable by Nox)")
+    print(f"[proxy] mitmproxy HTTP on {PROXY_HOST}:{PROXY_PORT} + SOCKS5 on {PROXY_HOST}:{SOCKS_PORT} (0.0.0.0 reachable by device)")
     print("[ready] set the Nox proxy + install the CA manually for M1, or use Connect in M3.")
 
     try:

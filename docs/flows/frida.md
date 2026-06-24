@@ -59,8 +59,9 @@ ws "frida_intercept" {package}
         _detach_session()                  (drop any prior script)
         _build_script()                                     [backend/frida_controller.py]
           MITM_CA_PEM exists?              no → emit frida_inject(False, "CA not found")
-          read CA PEM + host_lan_ip()+PROXY_PORT
-          → JSON prologue NOX_CONFIG + android-unpinning.js + android-root-bypass.js
+          read CA PEM + host_lan_ip() + PROXY_PORT + SOCKS_PORT
+          → prologue (NOX_CONFIG + native-hook config globals)
+            + native-connect-hook.js + android-unpinning.js + android-root-bypass.js
         device.spawn([package])            → pid            [asyncio.to_thread]
         device.attach(pid)                 → session
         session.create_script(source)      → script
@@ -71,12 +72,14 @@ ws "frida_intercept" {package}
         state.frida.targetApp/targetPid set
                                            → emit frida_inject(True)
 ```
-On-device, both injected scripts run in the app: `android-unpinning.js` swaps
-`SSLContext.init` to trust the CA, neuters pinning checks, and sets JVM proxy
-props; `android-root-bypass.js` hides root (su paths, `Runtime.exec`, build tags,
-system props, root packages, RootBeer) so root-averse apps still run. The app's
-HTTPS now decrypts through mitmproxy `:51080` and rows appear in the flow list
-via the normal [capture flow](capture.md).
+On-device, the injected scripts run in the app: `native-connect-hook.js` hooks
+libc `connect()` and redirects every TCP socket to the mitmproxy SOCKS5 listener
+(`:51081`), SOCKS5-handshaking the original destination; `android-unpinning.js`
+swaps `SSLContext.init` to trust the CA and neuters pinning checks;
+`android-root-bypass.js` hides root (su paths, `Runtime.exec`, build tags, system
+props, root packages, RootBeer) so root-averse apps still run. The app's HTTPS —
+raw-socket or JVM — now decrypts through mitmproxy and rows appear in the flow
+list via the normal [capture flow](capture.md).
 
 UI: `beginFridaInject` marks only `frida_inject` pending; on success the card
 shows the **Intercepting** state with a Stop button.
